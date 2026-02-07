@@ -265,7 +265,7 @@ export function MatchControl() {
               </button>
             </div>
             <div className="mt-2 text-xs text-white/60">
-              ملاحظة: يتم حساب الوقت محلياً بدون حفظ كل نبضة لضمان الأداء وعدم الكتابة المستمرة في IndexedDB.
+             ملاحظة : ابدأ المباراه وسجل الاهداف ثم اضغط علي انهاء المباراه و تأكيد النتيجه
             </div>
           </div>
         </div>

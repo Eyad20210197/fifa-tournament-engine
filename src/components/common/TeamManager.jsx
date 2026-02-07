@@ -19,7 +19,7 @@ export function TeamManager() {
         <div>
           <div className="text-xs text-white/60">إدارة الفرق</div>
           <div className="mt-2 text-xl font-semibold text-white/90">الفرق المشاركة</div>
-          <div className="mt-1 text-sm text-white/70">إضافة/تعديل/حذف + رفع شعار (Base64) مع حفظ تلقائي.</div>
+          <div className="mt-1 text-sm text-white/70">اضف فرقك وقم بتعديلها أو حذفها من هنا.</div>
         </div>
         <button
           className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365]"
@@ -255,7 +255,7 @@ function TeamModal({ title, initial, onClose, onSubmit }) {
                 </div>
                 <div>
                   <div className="text-sm font-semibold text-white/90">شعار الفريق</div>
-                  <div className="mt-1 text-xs text-white/60">يتم حفظه كـ Base64 داخل المتصفح.</div>
+                  <div className="mt-1 text-xs text-white/60"> اضف شعار الفريق</div>
                 </div>
               </div>
 

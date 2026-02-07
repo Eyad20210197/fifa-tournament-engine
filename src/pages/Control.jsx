@@ -55,7 +55,7 @@ export default function Control() {
         >
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className="text-xs text-white/60">لوحة التحكم • تعمل بدون خادم • مزامنة فورية بين التبويبات</div>
+              <div className="text-xs text-white/60">لوحة التحكم</div>
               <h1 className="mt-2 text-2xl font-semibold tracking-wide">{tournamentName}</h1>
               <div className="mt-1 text-sm text-white/70">
                 الحالة: {hydrated ? 'جاهز' : 'جاري تحميل البيانات...'} • الشاشة الحالية: {labelFor(activeScreen)}
@@ -129,14 +129,13 @@ export default function Control() {
                 {location.origin}/display
               </code>
               <div className="mt-2 text-xs text-white/60">
-                ملاحظة: بعد أول تحميل، التطبيق يعمل دون إنترنت (تطبيق ويب تقدمي).
+                ملاحظة: بعد أول تحميل، التطبيق يعمل دون إنترنت.
               </div>
             </Card>
 
-            <Card title="ملاحظة المرحلة 1">
+            <Card title=" الخطوات القادمه ">
               <div className="text-sm text-white/75">
-                هذه المرحلة تركز على: الإعداد، التخزين في IndexedDB، الاسترجاع، والمزامنة بين التبويبات. مراحل
-                الإدارة/التوليد/البث التفصيلي ستأتي لاحقاً حسب الخطة.
+               اضف الفرق ثم اختار نوع البطوله ثم اضغط علي توليد بطوله يمكنك التحكم بالمباريات من خلال لوحة الاعدادات بالاسفل " التحكم"
               </div>
             </Card>
           </div>

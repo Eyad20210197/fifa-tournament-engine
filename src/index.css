@@ -9,6 +9,8 @@
 
 :root {
   color-scheme: dark;
+  --primary-color: #c9a227;
+  --secondary-color: #f6d365;
 }
 
 html {

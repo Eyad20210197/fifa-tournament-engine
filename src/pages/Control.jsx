@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournamentStore } from '../store/tournamentStore'
 import { RamadanStage } from '../components/common/RamadanStage'
@@ -7,6 +7,8 @@ import { TeamManager } from '../components/common/TeamManager'
 import { TournamentGenerator } from '../components/common/TournamentGenerator'
 import { SponsorManager } from '../components/common/SponsorManager'
 import { MatchControl } from '../components/common/MatchControl'
+import { connectLiveStateSocket } from '../services/liveStateSocket'
+import { fetchCurrentLiveState } from '../services/liveStateService'
 
 export default function Control() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
@@ -19,6 +21,15 @@ export default function Control() {
 
   const [importError, setImportError] = useState(null)
   const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    void fetchCurrentLiveState().then((snapshot) => {
+      if (snapshot) {
+        useTournamentStore.getState().applyRemoteState(snapshot)
+      }
+    })
+    connectLiveStateSocket()
+  }, [])
 
   const screens = useMemo(
     () => [
@@ -133,9 +144,9 @@ export default function Control() {
               </div>
             </Card>
 
-            <Card title=" الخطوات القادمه ">
+            <Card title="Next Steps">
               <div className="text-sm text-white/75">
-               اضف الفرق ثم اختار نوع البطوله ثم اضغط علي توليد بطوله يمكنك التحكم بالمباريات من خلال لوحة الاعدادات بالاسفل " التحكم"
+                Add teams, choose a format, generate the tournament, then manage matches from the control section below.
               </div>
             </Card>
           </div>

@@ -1,8 +1,8 @@
 import { create } from 'zustand'
-import { db, DEFAULT_SINGLETON_ID } from '../db/db'
 import { generateTournamentData } from '../utils/tournament/generate'
 import { computeStandings } from '../utils/tournament/standings'
-import { tournamentChannel } from '../utils/broadcast'
+import { publishLiveState } from '../services/liveStateSocket'
+import { saveCurrentLiveState } from '../services/liveStateService'
 
 function normalizeTimer(timer) {
   const fallback = {
@@ -41,77 +41,6 @@ function persistedSlice(state) {
   return { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState }
 }
 
-async function saveToIndexedDB(snapshot) {
-  const { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState } = snapshot
-  const standingsWithRank = (standings ?? []).map((r, idx) => ({ ...r, rank: r.rank ?? idx + 1 }))
-
-  await db.transaction(
-    'rw',
-    db.tournament,
-    db.teams,
-    db.matches,
-    db.standings,
-    db.activeScreen,
-    db.sponsor,
-    db.liveMatchState,
-    async () => {
-      await db.tournament.put({ id: DEFAULT_SINGLETON_ID, ...tournament })
-
-      await db.teams.clear()
-      if (teams.length) await db.teams.bulkPut(teams)
-
-      await db.matches.clear()
-      if (matches.length) await db.matches.bulkPut(matches)
-
-      await db.standings.clear()
-      if (standingsWithRank.length) await db.standings.bulkPut(standingsWithRank)
-
-      await db.activeScreen.put({ id: DEFAULT_SINGLETON_ID, value: activeScreen })
-      await db.sponsor.put({ id: DEFAULT_SINGLETON_ID, ...sponsor })
-      await db.liveMatchState.put({ id: DEFAULT_SINGLETON_ID, ...liveMatchState })
-    },
-  )
-}
-
-async function loadFromIndexedDB() {
-  const [tournamentRow, teams, matches, standings, activeScreenRow, sponsorRow, liveMatchRow] =
-    await Promise.all([
-      db.tournament.get(DEFAULT_SINGLETON_ID),
-      db.teams.toArray(),
-      db.matches.toArray(),
-      db.standings.orderBy('rank').toArray().catch(() => db.standings.toArray()),
-      db.activeScreen.get(DEFAULT_SINGLETON_ID),
-      db.sponsor.get(DEFAULT_SINGLETON_ID),
-      db.liveMatchState.get(DEFAULT_SINGLETON_ID),
-    ])
-
-  const withoutId = (row) => {
-    if (!row) return null
-    // Dexie يستخدم "id" كمفتاح في الجداول singleton؛ لا نريدها داخل حالة التطبيق.
-    // eslint-disable-next-line no-unused-vars
-    const { id, ...rest } = row
-    return rest
-  }
-
-  return {
-    tournament: withoutId(tournamentRow),
-    teams: teams ?? [],
-    matches: matches ?? [],
-    standings: standings ?? [],
-    activeScreen: activeScreenRow?.value ?? null,
-    sponsor: withoutId(sponsorRow),
-    liveMatchState: (() => {
-      const l = withoutId(liveMatchRow)
-      if (!l) return null
-      return {
-        ...l,
-        timer: normalizeTimer(l.timer),
-        goalEvents: Array.isArray(l.goalEvents) ? l.goalEvents : [],
-      }
-    })(),
-  }
-}
-
 function defaultTournament() {
   return {
     name: 'بطولة رمضان 2026',
@@ -140,7 +69,7 @@ function defaultState() {
       goalEvents: [],
     },
     _meta: {
-      hydrated: false,
+      hydrated: true,
       lastSavedAt: null,
       lastReceivedAt: null,
       syncEnabled: false,
@@ -158,19 +87,16 @@ export const useTournamentStore = create((set, get) => {
     // تسلسل الحفظ لتفادي تداخل المعاملات
     commitQueue = commitQueue
       .then(async () => {
-        await saveToIndexedDB(snapshot)
+        await saveCurrentLiveState(snapshot).catch(() => null)
         set((s) => ({ _meta: { ...s._meta, lastSavedAt: Date.now() } }))
 
-        // بث التحديث بعد نجاح الحفظ فقط (وبشرط أننا داخل /control)
-        if (broadcast && !isApplyingRemote && tournamentChannel && globalThis.location?.pathname?.startsWith('/control')) {
-          tournamentChannel.postMessage({
-            type: 'STATE_UPDATED',
-            payload: snapshot,
-          })
+        // بث التحديث بعد نجاح الحفظ فقط لتغذية شاشة العرض الحية عبر WebSocket.
+        if (broadcast && !isApplyingRemote) {
+          publishLiveState(snapshot)
         }
       })
       .catch((err) => {
-        console.error('فشل حفظ البيانات في IndexedDB:', err)
+        console.error('فشل حفظ حالة البث على الخادم:', err)
       })
   }
 
@@ -185,26 +111,7 @@ export const useTournamentStore = create((set, get) => {
   }
 
   async function hydrate() {
-    const initial = defaultState()
-
-    try {
-      const loaded = await loadFromIndexedDB()
-
-      set(() => ({
-        ...initial,
-        tournament: loaded.tournament ?? initial.tournament,
-        teams: loaded.teams ?? initial.teams,
-        matches: loaded.matches ?? initial.matches,
-        standings: loaded.standings ?? initial.standings,
-        activeScreen: loaded.activeScreen ?? initial.activeScreen,
-        sponsor: loaded.sponsor ?? initial.sponsor,
-        liveMatchState: loaded.liveMatchState ?? initial.liveMatchState,
-        _meta: { ...initial._meta, hydrated: true },
-      }))
-    } catch (err) {
-      console.error('فشل استرجاع البيانات من IndexedDB:', err)
-      set(() => ({ ...initial, _meta: { ...initial._meta, hydrated: true } }))
-    }
+    set((s) => ({ ...s, _meta: { ...s._meta, hydrated: true } }))
   }
 
   return {
@@ -213,7 +120,7 @@ export const useTournamentStore = create((set, get) => {
     // Bootstrap
     hydrate,
 
-    // تطبيق حالة واردة من BroadcastChannel (بدون حفظ/بث لتفادي الحلقات والكتابة المزدوجة)
+    // تطبيق حالة واردة من الخادم/الـ WebSocket بدون إعادة حفظ لتفادي الحلقات.
     applyRemoteState: (payload) => {
       if (!payload) return
       isApplyingRemote = true
@@ -228,7 +135,7 @@ export const useTournamentStore = create((set, get) => {
                 goalEvents: Array.isArray(payload.liveMatchState.goalEvents) ? payload.liveMatchState.goalEvents : [],
               }
             : s.liveMatchState,
-          _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: Boolean(tournamentChannel) },
+          _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
         }))
       } finally {
         isApplyingRemote = false
@@ -599,8 +506,6 @@ export const useTournamentStore = create((set, get) => {
     resetAll: async () => {
       const initial = defaultState()
       set(() => initial)
-      await db.delete()
-      await db.open()
       await commit(initial, { broadcast: true })
     },
   }

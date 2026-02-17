@@ -8,7 +8,8 @@ import { StandingsTable } from '../components/standings/StandingsTable'
 import { BracketView } from '../components/bracket/BracketView'
 import { ScheduleList } from '../components/schedule/ScheduleList'
 import { ScreenLabel } from '../components/common/ScreenLabel'
-import { tournamentChannel } from '../utils/broadcast'
+import { connectLiveStateSocket, subscribeLiveState } from '../services/liveStateSocket'
+import { fetchCurrentLiveState } from '../services/liveStateService'
 
 export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
@@ -17,16 +18,25 @@ export default function Display() {
   const activeScreen = useTournamentStore((s) => s.activeScreen)
 
   useEffect(() => {
-    if (!tournamentChannel) return () => {}
-    const onMessage = (event) => {
-      const msg = event?.data
+    void fetchCurrentLiveState()
+      .then((snapshot) => {
+        if (snapshot) {
+          useTournamentStore.getState().applyRemoteState(snapshot)
+        }
+      })
+      .finally(() => {
+        useTournamentStore.setState((state) => ({
+          ...state,
+          _meta: { ...state._meta, hydrated: true },
+        }))
+      })
+
+    connectLiveStateSocket()
+    return subscribeLiveState((msg) => {
       if (!msg || msg.type !== 'STATE_UPDATED') return
-      const payload = msg.payload
-      if (!payload) return
-      useTournamentStore.getState().applyRemoteState(payload)
-    }
-    tournamentChannel.addEventListener('message', onMessage)
-    return () => tournamentChannel.removeEventListener('message', onMessage)
+      if (!msg.payload) return
+      useTournamentStore.getState().applyRemoteState(msg.payload)
+    })
   }, [])
 
   return (
@@ -44,7 +54,7 @@ export default function Display() {
             className="mt-10"
           >
             {!hydrated ? (
-              <CenterMessage>جاري تحميل البث...</CenterMessage>
+              <CenterMessage>Loading live screen...</CenterMessage>
             ) : activeScreen === 'opening' ? (
               <OpeningScreen />
             ) : activeScreen === 'live' ? (
@@ -56,7 +66,7 @@ export default function Display() {
             ) : activeScreen === 'schedule' ? (
               <ScheduleList />
             ) : (
-              <CenterMessage>شاشة غير معروفة</CenterMessage>
+              <CenterMessage>Unknown screen</CenterMessage>
             )}
           </motion.div>
         </AnimatePresence>
@@ -71,18 +81,18 @@ function Header({ tournamentName, sponsorLogo }) {
   return (
     <div className="flex items-center justify-between gap-6">
       <div>
-        <div className="text-sm text-white/60">بث مباشر • رمضان 2026</div>
-        <div className="mt-1 text-3xl font-semibold tracking-wide">{tournamentName || 'بطولة رمضان'}</div>
+        <div className="text-sm text-white/60">Live Broadcast</div>
+        <div className="mt-1 text-3xl font-semibold tracking-wide">{tournamentName || 'Tournament'}</div>
       </div>
 
       <div className="flex items-center gap-4">
         {sponsorLogo ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur">
-            <img alt="الراعي" src={sponsorLogo} className="h-12 w-auto object-contain" />
+            <img alt="Sponsor" src={sponsorLogo} className="h-12 w-auto object-contain" />
           </div>
         ) : (
           <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70 backdrop-blur">
-            مساحة الراعي
+            Sponsor Area
           </div>
         )}
       </div>
@@ -93,8 +103,8 @@ function Header({ tournamentName, sponsorLogo }) {
 function Footer({ activeScreen }) {
   return (
     <div className="pointer-events-none mt-10 flex items-center justify-between">
-      <ScreenLabel>الشاشة: {screenLabel(activeScreen)}</ScreenLabel>
-      <ScreenLabel>نظام بث • يعمل دون إنترنت • مزامنة فورية</ScreenLabel>
+      <ScreenLabel>Screen: {screenLabel(activeScreen)}</ScreenLabel>
+      <ScreenLabel>Real-time sync via API + WebSocket</ScreenLabel>
     </div>
   )
 }
@@ -102,17 +112,17 @@ function Footer({ activeScreen }) {
 function screenLabel(id) {
   switch (id) {
     case 'opening':
-      return 'الافتتاح'
+      return 'Opening'
     case 'live':
-      return 'مباشر'
+      return 'Live Match'
     case 'standings':
-      return 'الترتيب'
+      return 'Standings'
     case 'bracket':
-      return 'خروج مغلوب'
+      return 'Bracket'
     case 'schedule':
-      return 'الجدول'
+      return 'Schedule'
     default:
-      return '—'
+      return '-'
   }
 }
 

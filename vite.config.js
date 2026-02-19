@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const backendUrl = env.VITE_BACKEND_URL || 'http://localhost:4000'
 
   return {
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     server: {
       proxy: {
         '/api': {

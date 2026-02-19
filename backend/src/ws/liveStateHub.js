@@ -3,6 +3,8 @@ import { WebSocketServer } from 'ws'
 import { env } from '../config/env.js'
 import { logger } from '../utils/logger.js'
 
+const allowedOrigins = new Set(env.allowedOrigins)
+
 function safeParseMessage(raw) {
   try {
     const parsed = JSON.parse(String(raw || ''))
@@ -48,6 +50,14 @@ export function setupLiveStateWebSocket(httpServer) {
   httpServer.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`)
     if (url.pathname !== '/ws/live-state') {
+      socket.destroy()
+      return
+    }
+
+    const requestOrigin = String(request.headers.origin || '')
+    const enforceOrigin = env.nodeEnv === 'production'
+    if (enforceOrigin && (!requestOrigin || !allowedOrigins.has(requestOrigin))) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
       socket.destroy()
       return
     }

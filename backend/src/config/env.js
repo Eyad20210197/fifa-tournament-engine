@@ -2,21 +2,33 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
+const DEFAULT_PROD_ORIGIN = 'https://fifa-ramadan-tournament-2026.vercel.app'
+
 function parseAllowedOrigins() {
   const raw = process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || ''
-  return raw
+  const origins = raw
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean)
+
+  if (origins.length > 0) {
+    return origins
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return [DEFAULT_PROD_ORIGIN]
+  }
+
+  return []
 }
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 4000),
+  baseUrl: process.env.BASE_URL || '',
   databaseUrl: process.env.DATABASE_URL || '',
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
-  frontendUrl: process.env.FRONTEND_URL || '',
   allowedOrigins: parseAllowedOrigins(),
 }
 
@@ -35,6 +47,10 @@ if (!env.jwtSecret) {
   throw new Error('JWT_SECRET is required')
 }
 
-if (env.nodeEnv === 'production' && env.allowedOrigins.length === 0 && !env.frontendUrl) {
-  throw new Error('Set ALLOWED_ORIGINS or FRONTEND_URL in production')
+if (!env.baseUrl && env.nodeEnv === 'production') {
+  throw new Error('BASE_URL is required in production')
+}
+
+if (env.nodeEnv === 'production' && env.allowedOrigins.length === 0) {
+  throw new Error('Set ALLOWED_ORIGINS in production')
 }

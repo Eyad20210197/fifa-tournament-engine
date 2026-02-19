@@ -1,19 +1,44 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
-const WS_BASE_URL =
-  import.meta.env.VITE_WS_BASE_URL ||
-  (API_BASE_URL.startsWith('http')
-    ? API_BASE_URL.replace(/^http/i, 'ws').replace(/\/api\/?$/, '')
-    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`)
+const DEFAULT_SECURE_WS_ENDPOINT = 'wss://fifaleague.duckdns.org/ws/live-state'
+
+function resolveWsEndpoint() {
+  const explicitEndpoint = import.meta.env.NEXT_PUBLIC_WS_URL || import.meta.env.VITE_WS_URL
+  if (explicitEndpoint) {
+    return String(explicitEndpoint).trim()
+  }
+
+  const explicitBase = import.meta.env.VITE_WS_BASE_URL
+  if (explicitBase) {
+    return `${String(explicitBase).trim().replace(/\/+$/, '')}/ws/live-state`
+  }
+
+  const apiBase = import.meta.env.NEXT_PUBLIC_API_URL || import.meta.env.VITE_API_BASE_URL
+  if (apiBase && String(apiBase).startsWith('http')) {
+    return `${String(apiBase)
+      .trim()
+      .replace(/^http/i, 'ws')
+      .replace(/\/api\/?$/, '')
+      .replace(/\/+$/, '')}/ws/live-state`
+  }
+
+  if (window.location.protocol === 'https:') {
+    return DEFAULT_SECURE_WS_ENDPOINT
+  }
+
+  return `ws://${window.location.host}/ws/live-state`
+}
+
+const WS_ENDPOINT = resolveWsEndpoint()
 
 let socket = null
 let reconnectTimer = null
 let reconnectAttempts = 0
 const listeners = new Set()
+const MAX_RECONNECT_DELAY_MS = 30000
 
 function buildSocketUrl() {
   const token = localStorage.getItem('saasToken')
   if (!token) return null
-  return `${WS_BASE_URL}/ws/live-state?token=${encodeURIComponent(token)}`
+  return `${WS_ENDPOINT}?token=${encodeURIComponent(token)}`
 }
 
 function notify(message) {
@@ -24,7 +49,9 @@ function notify(message) {
 
 function scheduleReconnect() {
   if (reconnectTimer) return
-  const delay = Math.min(30000, 1000 * 2 ** reconnectAttempts)
+  const expDelay = Math.min(MAX_RECONNECT_DELAY_MS, 1000 * 2 ** reconnectAttempts)
+  const jitter = Math.floor(Math.random() * 500)
+  const delay = expDelay + jitter
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     connectLiveStateSocket()

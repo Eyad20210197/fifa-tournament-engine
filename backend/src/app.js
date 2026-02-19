@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import compression from 'compression'
+import { rateLimit } from 'express-rate-limit'
 import { env } from './config/env.js'
 import { authRouter } from './modules/auth/auth.routes.js'
 import { businessesRouter } from './modules/businesses/businesses.routes.js'
@@ -9,19 +11,26 @@ import { usersRouter } from './modules/users/users.routes.js'
 import { tournamentsRouter } from './modules/tournaments/tournaments.routes.js'
 import { financeRouter } from './modules/finance/finance.routes.js'
 import { liveStateRouter } from './modules/live-state/live-state.routes.js'
-import { asyncHandler } from './utils/asyncHandler.js'
-import { query } from './config/db.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
 
 export const app = express()
 
 app.use(helmet())
+app.set('trust proxy', 1)
+app.use(compression())
 
-const allowedOrigins = new Set([
-  ...env.allowedOrigins,
-  ...(env.frontendUrl ? [env.frontendUrl] : []),
-])
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please try again later.' },
+})
+
+app.use('/api', apiLimiter)
+
+const allowedOrigins = new Set(env.allowedOrigins)
 
 const corsOptions = {
   origin(origin, callback) {
@@ -34,28 +43,26 @@ const corsOptions = {
       return callback(null, true)
     }
 
-    return callback(null, false)
+    const corsError = new Error('CORS origin denied')
+    corsError.status = 403
+    return callback(corsError)
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }
 
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
-app.use(express.json({ limit: '2mb' }))
-app.use(morgan('dev'))
+app.use(express.json({ limit: '10mb' }))
+app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'))
 
-app.get(
-  '/health',
-  asyncHandler(async (req, res) => {
-    await query('SELECT 1')
-    return res.json({
-      success: true,
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    })
-  }),
-)
+app.get('/health', (req, res) => {
+  return res.json({
+    status: 'ok',
+    env: process.env.NODE_ENV,
+  })
+})
 
 app.use('/api/auth', authRouter)
 app.use('/api/businesses', businessesRouter)

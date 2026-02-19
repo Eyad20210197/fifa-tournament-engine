@@ -14,7 +14,13 @@ export function errorHandler(error, req, res, next) {
       ? 'Database service is unavailable'
       : error.message || 'Internal Server Error'
 
-  logger.error(req.method, req.originalUrl, status, message)
+  logger.error({
+    method: req.method,
+    path: req.originalUrl,
+    status,
+    message,
+    stack: process.env.NODE_ENV === 'production' ? undefined : error.stack,
+  })
 
   if (res.headersSent) {
     return next(error)

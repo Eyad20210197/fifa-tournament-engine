@@ -36,22 +36,16 @@ function applyBranding(branding) {
 }
 
 async function fetchBranding() {
-  const candidates = ['/business/branding', '/businesses/branding', '/branding']
-
-  for (const endpoint of candidates) {
-    try {
-      const response = await api.get(endpoint)
-      return response?.data?.data || response?.data || null
-    } catch (error) {
-      const status = Number(error?.response?.status || 0)
-      // Branding is optional at login bootstrap. Do not fail authentication flow
-      // when endpoint variants are missing or forbidden for current role.
-      if (status === 401 || status === 403 || status === 404) continue
-      throw error
-    }
+  try {
+    const response = await api.get('/businesses/branding')
+    return response?.data?.data || response?.data || null
+  } catch (error) {
+    const status = Number(error?.response?.status || 0)
+    // Branding is optional at login bootstrap. Do not fail authentication flow
+    // when endpoint is forbidden for current role.
+    if (status === 401 || status === 403 || status === 404) return null
+    throw error
   }
-
-  return null
 }
 
 function readInitialSession() {

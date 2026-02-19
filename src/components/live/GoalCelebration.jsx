@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+﻿import { AnimatePresence, motion } from 'framer-motion'
 
 export function GoalCelebration({ open, sideLabel, teamName }) {
   return (
@@ -15,12 +15,12 @@ export function GoalCelebration({ open, sideLabel, teamName }) {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.98, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 340, damping: 24 }}
-            className="relative overflow-hidden rounded-3xl border border-[#c9a227]/40 bg-black/55 px-10 py-8 text-center shadow-[0_0_60px_rgba(201,162,39,0.18)] backdrop-blur"
+            className="relative overflow-hidden rounded-3xl border border-[var(--primary-color)]/40 bg-black/55 px-10 py-8 text-center shadow-[0_0_60px_rgba(201,162,39,0.18)] backdrop-blur"
           >
             <div className="absolute inset-0 bg-[radial-gradient(600px_220px_at_50%_20%,rgba(201,162,39,0.25),transparent_60%)]" />
             <div className="relative">
               <div className="text-sm text-white/70">{sideLabel}</div>
-              <div className="mt-2 text-6xl font-extrabold tracking-wide text-[#f6d365]">هدف!</div>
+              <div className="mt-2 text-6xl font-extrabold tracking-wide text-[var(--secondary-color)]">هدف!</div>
               <div className="mt-3 text-2xl font-semibold text-white/90">{teamName || '—'}</div>
             </div>
           </motion.div>
@@ -29,4 +29,3 @@ export function GoalCelebration({ open, sideLabel, teamName }) {
     </AnimatePresence>
   )
 }
-

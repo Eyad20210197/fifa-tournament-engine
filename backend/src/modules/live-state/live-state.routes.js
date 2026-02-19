@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { query } from '../../config/db.js'
 import { asyncHandler } from '../../utils/asyncHandler.js'
 import { authenticate } from '../../middleware/authenticate.js'
-import { authorize } from '../../middleware/authorize.js'
 import { requireSubscription } from '../../middleware/requireSubscription.js'
 import { HttpError } from '../../utils/httpError.js'
 
@@ -38,7 +37,6 @@ liveStateRouter.get(
 
 liveStateRouter.put(
   '/current',
-  authorize('ADMIN', 'STAFF'),
   asyncHandler(async (req, res) => {
     const parsed = snapshotSchema.safeParse(req.body)
     if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)

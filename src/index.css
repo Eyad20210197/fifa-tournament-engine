@@ -1,33 +1,56 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/*
-  نظام بث بطولة FIFA - رمضان 2026
-  إعدادات عامة: RTL + خطوط كبيرة مناسبة لشاشة التلفزيون.
-*/
 
 :root {
   color-scheme: dark;
   --primary-color: #c9a227;
   --secondary-color: #f6d365;
+  --background-dark: #050d19;
+  --surface-card: #0b1e38;
+  --text-primary: #f8f4e8;
+  --text-secondary: #c6d0e1;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 html {
   direction: rtl;
+  font-size: 16px;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(1200px 800px at 50% 10%, #0b2a55 0%, #07162b 45%, #050b14 100%);
-  color: #f6f3e8;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, 'Noto Sans Arabic',
-    'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji';
+  background:
+    radial-gradient(1300px 800px at 55% -5%, rgba(246, 211, 101, 0.12), transparent 55%),
+    radial-gradient(900px 500px at 20% 30%, rgba(64, 138, 255, 0.1), transparent 50%),
+    var(--background-dark);
+  color: var(--text-primary);
+  font-family: Cairo, 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+  text-align: right;
 }
 
 * {
   box-sizing: border-box;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
 }
 
 @keyframes stars {
@@ -36,6 +59,18 @@ body {
   }
   to {
     transform: translateY(320px);
+  }
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1920px) {
+  html {
+    font-size: 17px;
   }
 }
 

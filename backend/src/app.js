@@ -17,12 +17,31 @@ import { errorHandler } from './middleware/errorHandler.js'
 export const app = express()
 
 app.use(helmet())
-app.use(
-  cors({
-    origin: env.corsOrigin,
-    credentials: true,
-  }),
-)
+
+const allowedOrigins = new Set([
+  ...env.allowedOrigins,
+  ...(env.frontendUrl ? [env.frontendUrl] : []),
+])
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow server-to-server requests with no browser Origin header.
+    if (!origin) {
+      return callback(null, true)
+    }
+
+    if (allowedOrigins.has(origin)) {
+      return callback(null, true)
+    }
+
+    return callback(null, false)
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}
+
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 app.use(express.json({ limit: '2mb' }))
 app.use(morgan('dev'))
 

@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom'
+﻿import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './useAuth'
 import LockedPage from '../pages/auth/LockedPage'
 
@@ -8,8 +8,8 @@ export default function ProtectedRoute({ children }) {
 
   if (!ready) {
     return (
-      <div className="grid min-h-screen place-items-center text-white/80">
-        <p>Loading...</p>
+      <div className="grid min-h-screen place-items-center text-[var(--text-secondary)]">
+        <p>جار تحميل الجلسة...</p>
       </div>
     )
   }

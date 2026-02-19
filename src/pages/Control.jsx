@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournamentStore } from '../store/tournamentStore'
 import { RamadanStage } from '../components/common/RamadanStage'
@@ -9,8 +9,46 @@ import { SponsorManager } from '../components/common/SponsorManager'
 import { MatchControl } from '../components/common/MatchControl'
 import { connectLiveStateSocket } from '../services/liveStateSocket'
 import { fetchCurrentLiveState } from '../services/liveStateService'
+import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
+import { useAuth } from '../auth/useAuth'
+import { ROLES } from '../auth/roles'
+
+function mapDetailsToControlState(details) {
+  const format = details?.format || 'دوري'
+  const mode = format === 'خروج مغلوب' ? 'knockout' : 'league'
+
+  return {
+    tournament: {
+      name: details?.name || 'Tournament',
+      format,
+    },
+    teams: (details?.teams || []).map((team) => ({
+      id: Number(team.id),
+      teamName: team.team_name || '--',
+      clubName: team.club_name || '',
+    })),
+    matches: (details?.matches || []).map((match, index) => ({
+      id: Number(match.id),
+      order: index + 1,
+      mode,
+      homeTeamId: match.home_team_id ? Number(match.home_team_id) : null,
+      awayTeamId: match.away_team_id ? Number(match.away_team_id) : null,
+      homeScore: Number(match.home_score || 0),
+      awayScore: Number(match.away_score || 0),
+      status: match.status || 'pending',
+      round: Number(match.round_number || 1),
+      resultConfirmed: false,
+      winnerTeamId: null,
+    })),
+    sponsor: {
+      logoBase64: details?.sponsor_logo_url || null,
+    },
+  }
+}
 
 export default function Control() {
+  const { role } = useAuth()
+  const isAdmin = role === ROLES.ADMIN
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
   const tournamentName = useTournamentStore((s) => s.tournament.name)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
@@ -23,12 +61,29 @@ export default function Control() {
   const fileInputRef = useRef(null)
 
   useEffect(() => {
-    void fetchCurrentLiveState().then((snapshot) => {
+    async function bootstrapControl() {
+      const snapshot = await fetchCurrentLiveState().catch(() => null)
       if (snapshot) {
         useTournamentStore.getState().applyRemoteState(snapshot)
+      } else {
+        const tournaments = await fetchTournaments().catch(() => [])
+        const target =
+          tournaments.find((item) => item.status === 'live') ||
+          tournaments.find((item) => item.status === 'scheduled') ||
+          tournaments[0]
+
+        if (target?.id) {
+          const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
+          if (details) {
+            useTournamentStore.getState().applyRemoteState(mapDetailsToControlState(details))
+          }
+        }
       }
-    })
-    connectLiveStateSocket()
+
+      connectLiveStateSocket()
+    }
+
+    void bootstrapControl()
   }, [])
 
   const screens = useMemo(
@@ -36,7 +91,7 @@ export default function Control() {
       { id: 'opening', label: 'شاشة الافتتاح' },
       { id: 'live', label: 'مباراة مباشرة' },
       { id: 'standings', label: 'الترتيب' },
-      { id: 'bracket', label: 'خروج مغلوب' },
+      { id: 'bracket', label: 'شجرة البطولة' },
       { id: 'schedule', label: 'الجدول' },
     ],
     [],
@@ -48,8 +103,8 @@ export default function Control() {
     try {
       const text = await file.text()
       await importJSON(text)
-    } catch (err) {
-      setImportError(err?.message || 'فشل الاستيراد')
+    } catch (error) {
+      setImportError(error?.message || 'فشل الاستيراد')
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
@@ -57,76 +112,78 @@ export default function Control() {
 
   return (
     <RamadanStage>
-      <div className="mx-auto w-full max-w-7xl px-6 py-8">
+      <div className="mx-auto w-full max-w-[1700px] px-4 py-6">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur"
+          className="rounded-3xl border border-white/10 bg-[var(--surface-card)]/70 p-4 backdrop-blur md:p-6"
         >
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className="text-xs text-white/60">لوحة التحكم</div>
-              <h1 className="mt-2 text-2xl font-semibold tracking-wide">{tournamentName}</h1>
-              <div className="mt-1 text-sm text-white/70">
-                الحالة: {hydrated ? 'جاهز' : 'جاري تحميل البيانات...'} • الشاشة الحالية: {labelFor(activeScreen)}
-              </div>
+              <p className="text-xs text-[var(--text-secondary)]">لوحة التحكم المباشر</p>
+              <h1 className="mt-1 text-2xl font-semibold">{tournamentName}</h1>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                الحالة: {hydrated ? 'جاهز' : 'جار تحميل البيانات'} • الشاشة الحالية: {labelFor(activeScreen)}
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365]"
-                onClick={() => downloadTextFile(`ramadan-fifa-2026-${Date.now()}.json`, exportJSON())}
-              >
-                تصدير البطولة
-              </button>
+              {isAdmin ? (
+                <>
+                  <button
+                    className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b]"
+                    onClick={() => downloadTextFile(`backup-${Date.now()}.json`, exportJSON())}
+                  >
+                    تصدير
+                  </button>
 
-              <input
-                ref={fileInputRef}
-                className="hidden"
-                type="file"
-                accept="application/json"
-                onChange={(e) => onImportFile(e.target.files?.[0])}
-              />
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                استيراد بطولة
-              </button>
+                  <input
+                    ref={fileInputRef}
+                    className="hidden"
+                    type="file"
+                    accept="application/json"
+                    onChange={(event) => onImportFile(event.target.files?.[0])}
+                  />
+                  <button
+                    className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    استيراد
+                  </button>
 
-              <button
-                className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-100 hover:bg-rose-500/15"
-                onClick={() => resetAll()}
-              >
-                إعادة ضبط كاملة
-              </button>
+                  <button
+                    className="min-h-11 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-100"
+                    onClick={() => resetAll()}
+                  >
+                    إعادة ضبط
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
 
           {importError ? (
-            <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-              {importError}
-            </div>
+            <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">{importError}</div>
           ) : null}
 
           <div className="mt-6">
-            <div className="text-sm text-white/80">تبديل شاشة البث (تظهر فوراً في /display)</div>
+            <p className="text-sm text-[var(--text-secondary)]">تبديل شاشة العرض المباشر</p>
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
-              {screens.map((s) => {
-                const isActive = activeScreen === s.id
+              {screens.map((screen) => {
+                const isActive = activeScreen === screen.id
                 return (
                   <button
-                    key={s.id}
-                    onClick={() => setActiveScreen(s.id)}
+                    key={screen.id}
+                    onClick={() => setActiveScreen(screen.id)}
                     className={[
-                      'rounded-2xl border px-3 py-4 text-sm transition',
+                      'min-h-11 rounded-2xl border px-3 py-2 text-sm transition',
                       isActive
-                        ? 'border-[#c9a227]/60 bg-[#c9a227]/10 text-[#f6d365]'
-                        : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10',
+                        ? 'border-[var(--primary-color)]/60 bg-[var(--primary-color)]/10 text-[var(--secondary-color)]'
+                        : 'border-white/10 bg-white/5 text-[var(--text-primary)] hover:bg-white/10',
                     ].join(' ')}
                   >
-                    {s.label}
+                    {screen.label}
                   </button>
                 )
               })}
@@ -135,36 +192,40 @@ export default function Control() {
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <Card title="رابط شاشة العرض">
-              <div className="text-sm text-white/80">افتح هذا الرابط على شاشة التلفزيون:</div>
-              <code className="mt-2 block rounded-xl bg-black/30 px-3 py-2 text-sm text-white/90">
-                {location.origin}/display
-              </code>
-              <div className="mt-2 text-xs text-white/60">
-                ملاحظة: بعد أول تحميل، التطبيق يعمل دون إنترنت.
-              </div>
+              <p className="text-sm text-[var(--text-secondary)]">استخدم الرابط التالي على شاشة التلفاز:</p>
+              <code className="mt-2 block rounded-xl bg-black/30 px-3 py-2 text-sm">{window.location.origin}/display</code>
             </Card>
-
-            <Card title="Next Steps">
-              <div className="text-sm text-white/75">
-                Add teams, choose a format, generate the tournament, then manage matches from the control section below.
-              </div>
+            <Card title="ملاحظات التشغيل">
+              <p className="text-sm text-[var(--text-secondary)]">
+                {isAdmin
+                  ? 'ابدأ بتجهيز الفرق ثم توليد البطولة، وبعدها استخدم التحكم بالمباريات أدناه.'
+                  : 'للطاقم: التحكم المسموح هو التبديل بين شاشات العرض وإدارة المباراة المباشرة فقط.'}
+              </p>
             </Card>
           </div>
 
-          <div className="mt-8">
-            <TeamManager />
-          </div>
+          {isAdmin ? (
+            <>
+              <div className="mt-8">
+                <TeamManager />
+              </div>
 
-          <div className="mt-6">
-            <TournamentGenerator />
-          </div>
+              <div className="mt-6">
+                <TournamentGenerator />
+              </div>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-4">
-            <SponsorManager />
-            <div className="lg:col-span-3">
+              <div className="mt-6 grid gap-6 lg:grid-cols-4">
+                <SponsorManager />
+                <div className="lg:col-span-3">
+                  <MatchControl />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="mt-6">
               <MatchControl />
             </div>
-          </div>
+          )}
         </motion.div>
       </div>
     </RamadanStage>
@@ -173,26 +234,18 @@ export default function Control() {
 
 function Card({ title, children }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">
-      <div className="text-sm font-semibold text-white/90">{title}</div>
-      <div className="mt-3">{children}</div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <p className="text-sm font-semibold">{title}</p>
+      <div className="mt-2">{children}</div>
     </div>
   )
 }
 
 function labelFor(activeScreen) {
-  switch (activeScreen) {
-    case 'opening':
-      return 'شاشة الافتتاح'
-    case 'live':
-      return 'مباراة مباشرة'
-    case 'standings':
-      return 'الترتيب'
-    case 'bracket':
-      return 'خروج مغلوب'
-    case 'schedule':
-      return 'الجدول'
-    default:
-      return activeScreen
-  }
+  if (activeScreen === 'opening') return 'شاشة الافتتاح'
+  if (activeScreen === 'live') return 'مباراة مباشرة'
+  if (activeScreen === 'standings') return 'الترتيب'
+  if (activeScreen === 'bracket') return 'شجرة البطولة'
+  if (activeScreen === 'schedule') return 'الجدول'
+  return activeScreen
 }

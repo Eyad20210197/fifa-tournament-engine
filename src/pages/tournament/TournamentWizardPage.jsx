@@ -1,48 +1,79 @@
-import { useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createTournament } from '../../services/tournamentService'
 import { upsertFinancialSetup } from '../../services/financeService'
+import { useUiStore } from '../../store/uiStore'
+import { formatArabicNumber } from '../../utils/format'
 
-const steps = ['????????? ????????', '???????', '?????', '???????', '????????']
+const DRAFT_KEY = 'wizardDraftV2'
+
+const steps = [
+  'بيانات البطولة',
+  'الإعداد المالي',
+  'الفرق',
+  'الجدولة',
+  'المراجعة النهائية',
+]
 
 function emptyTeam() {
   return {
     team_name: '',
     club_name: '',
-    player1: '',
-    player2: '',
-    logo: '',
   }
+}
+
+function initialDraft(savedDraft) {
+  return (
+    savedDraft || {
+      name: '',
+      format: 'دوري',
+      starts_at: '',
+      sponsor_logo_url: '',
+      teams: [emptyTeam(), emptyTeam()],
+      financial: {
+        entry_fee: '',
+        sponsor_amount: '',
+        expected_teams: '',
+      },
+    }
+  )
 }
 
 export default function TournamentWizardPage() {
   const navigate = useNavigate()
+  const savedDraft = useUiStore((state) => state.wizardDraft)
+  const saveWizardDraft = useUiStore((state) => state.saveWizardDraft)
+  const clearWizardDraft = useUiStore((state) => state.clearWizardDraft)
+
   const [stepIndex, setStepIndex] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [draft, setDraft] = useState({
-    name: '',
-    format: '????',
-    starts_at: '',
-    teams: [emptyTeam(), emptyTeam()],
-    financial: {
-      entry_fee: '',
-      sponsor_amount: '',
-      expected_teams: '',
-    },
+  const [draft, setDraft] = useState(() => {
+    try {
+      const localDraft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null')
+      return initialDraft(savedDraft || localDraft)
+    } catch {
+      return initialDraft(savedDraft)
+    }
   })
 
   const isLastStep = useMemo(() => stepIndex === steps.length - 1, [stepIndex])
+  const validTeams = useMemo(() => draft.teams.filter((team) => team.team_name.trim()), [draft.teams])
+
+  useEffect(() => {
+    saveWizardDraft(draft)
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+  }, [draft, saveWizardDraft])
 
   function validateStep(index = stepIndex) {
     if (index === 0) {
-      if (!draft.name.trim()) return '??? ??????? ?????'
-      if (!draft.format) return '??? ??????? ?????'
+      if (!draft.name.trim()) return 'يرجى إدخال اسم البطولة.'
+      if (!draft.format) return 'يرجى اختيار نمط البطولة.'
     }
 
     if (index === 2) {
-      const validTeams = draft.teams.filter((team) => team.team_name.trim())
-      if (validTeams.length < 2) return '???? ?????? ??? ?????'
+      if (validTeams.length < 2) return 'يجب إضافة فريقين على الأقل.'
+      if (validTeams.length > 128) return 'الحد الأقصى للفرق هو 128 فريقا.'
     }
 
     return ''
@@ -65,15 +96,22 @@ export default function TournamentWizardPage() {
   }
 
   async function saveAsDraft() {
+    const issue = validateStep(0)
+    if (issue) {
+      setError(issue)
+      return
+    }
+
     setError('')
     setLoading(true)
 
     try {
       const tournament = await createTournament({
-        name: draft.name || '????? ?????',
+        name: draft.name || 'بطولة جديدة',
         format: draft.format,
         starts_at: draft.starts_at || null,
-        teams: draft.teams.filter((team) => team.team_name.trim()),
+        sponsor_logo_url: draft.sponsor_logo_url || null,
+        teams: validTeams,
       })
 
       if (draft.financial.expected_teams || draft.financial.entry_fee || draft.financial.sponsor_amount) {
@@ -85,9 +123,11 @@ export default function TournamentWizardPage() {
         })
       }
 
+      clearWizardDraft()
+      localStorage.removeItem(DRAFT_KEY)
       navigate('/saas/tournaments', { replace: true })
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || '??? ??? ???????')
+      setError(requestError?.response?.data?.message || 'تعذر حفظ المسودة.')
     } finally {
       setLoading(false)
     }
@@ -108,7 +148,8 @@ export default function TournamentWizardPage() {
         name: draft.name,
         format: draft.format,
         starts_at: draft.starts_at || null,
-        teams: draft.teams.filter((team) => team.team_name.trim()),
+        sponsor_logo_url: draft.sponsor_logo_url || null,
+        teams: validTeams,
       })
 
       await upsertFinancialSetup({
@@ -118,9 +159,11 @@ export default function TournamentWizardPage() {
         expected_teams: Number(draft.financial.expected_teams || 0),
       })
 
+      clearWizardDraft()
+      localStorage.removeItem(DRAFT_KEY)
       navigate('/saas/tournaments', { replace: true })
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || '??? ????? ???????')
+      setError(requestError?.response?.data?.message || 'تعذر إنشاء البطولة.')
     } finally {
       setLoading(false)
     }
@@ -138,67 +181,77 @@ export default function TournamentWizardPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">????? ????? ?????</h1>
+        <h2 className="text-xl font-semibold">معالج إنشاء البطولة</h2>
         <button
-          className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm disabled:opacity-60"
+          className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm disabled:opacity-60"
           onClick={saveAsDraft}
           disabled={loading}
         >
-          ??? ??????
+          حفظ كمسودة
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {steps.map((label, index) => (
-          <div
-            key={label}
-            className={[
-              'rounded-xl border px-3 py-2 text-xs',
-              index === stepIndex ? 'border-[#c9a227]/60 bg-[#c9a227]/10 text-[#f6d365]' : 'border-white/10 bg-white/5',
-            ].join(' ')}
-          >
-            {index + 1}. {label}
-          </div>
-        ))}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <p className="text-sm text-[var(--text-secondary)]">
+          الخطوة {formatArabicNumber(stepIndex + 1)} من {formatArabicNumber(steps.length)}
+        </p>
+        <p className="mt-1 text-lg font-semibold">{steps[stepIndex]}</p>
+
+        <div className="mt-4 grid gap-2 md:grid-cols-5">
+          {steps.map((label, index) => (
+            <div
+              key={label}
+              className={[
+                'rounded-xl border px-3 py-2 text-center text-xs',
+                index === stepIndex
+                  ? 'border-[var(--primary-color)]/55 bg-[var(--primary-color)]/12 text-[var(--secondary-color)]'
+                  : 'border-white/10 bg-black/20 text-[var(--text-secondary)]',
+              ].join(' ')}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+      {error ? <p className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
 
       <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <p className="mb-3 text-sm text-white/70">?????? ???????: {steps[stepIndex]}</p>
-
         {stepIndex === 0 ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-              placeholder="??? ???????"
+            <Field
+              placeholder="اسم البطولة"
               value={draft.name}
               onChange={(event) => setDraft((state) => ({ ...state, name: event.target.value }))}
             />
             <select
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
               value={draft.format}
               onChange={(event) => setDraft((state) => ({ ...state, format: event.target.value }))}
             >
-              <option value="????">????</option>
-              <option value="???? ?????">???? ?????</option>
+              <option value="دوري">دوري</option>
+              <option value="خروج مغلوب">خروج مغلوب</option>
             </select>
             <input
               type="datetime-local"
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 sm:col-span-2"
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 sm:col-span-2"
               value={draft.starts_at}
               onChange={(event) => setDraft((state) => ({ ...state, starts_at: event.target.value }))}
+            />
+            <Field
+              placeholder="رابط شعار الراعي"
+              value={draft.sponsor_logo_url}
+              onChange={(event) => setDraft((state) => ({ ...state, sponsor_logo_url: event.target.value }))}
             />
           </div>
         ) : null}
 
         {stepIndex === 1 ? (
           <div className="grid gap-3 sm:grid-cols-3">
-            <input
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-              placeholder="???? ????????"
+            <Field
+              placeholder="رسوم التسجيل"
               value={draft.financial.entry_fee}
               onChange={(event) =>
                 setDraft((state) => ({
@@ -207,9 +260,8 @@ export default function TournamentWizardPage() {
                 }))
               }
             />
-            <input
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-              placeholder="???? ??????"
+            <Field
+              placeholder="مبلغ الرعاية"
               value={draft.financial.sponsor_amount}
               onChange={(event) =>
                 setDraft((state) => ({
@@ -218,9 +270,8 @@ export default function TournamentWizardPage() {
                 }))
               }
             />
-            <input
-              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-              placeholder="??? ????? ???????"
+            <Field
+              placeholder="عدد الفرق المتوقع"
               value={draft.financial.expected_teams}
               onChange={(event) =>
                 setDraft((state) => ({
@@ -236,56 +287,68 @@ export default function TournamentWizardPage() {
           <div className="space-y-3">
             {draft.teams.map((team, index) => (
               <div key={index} className="grid gap-3 sm:grid-cols-2">
-                <input
-                  className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-                  placeholder={`??? ?????? ${index + 1}`}
+                <Field
+                  placeholder={`اسم الفريق ${formatArabicNumber(index + 1)}`}
                   value={team.team_name}
                   onChange={(event) => updateTeam(index, { team_name: event.target.value })}
                 />
-                <input
-                  className="rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-                  placeholder="??? ??????"
+                <Field
+                  placeholder="اسم النادي"
                   value={team.club_name}
                   onChange={(event) => updateTeam(index, { club_name: event.target.value })}
                 />
               </div>
             ))}
-            <button className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm" onClick={addTeam}>
-              ????? ????
+            <button className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm" onClick={addTeam}>
+              إضافة فريق
             </button>
           </div>
         ) : null}
 
-        {stepIndex === 3 ? <p className="text-sm text-white/75">???? ????? ??????? ?? ?????? ??? ??? ???????.</p> : null}
+        {stepIndex === 3 ? (
+          <p className="text-sm text-[var(--text-secondary)]">يتم توليد جدول المباريات تلقائيا بعد حفظ البطولة بحسب النمط المحدد.</p>
+        ) : null}
 
         {stepIndex === 4 ? (
-          <div className="space-y-2 text-sm text-white/80">
-            <p>?????: {draft.name || '--'}</p>
-            <p>?????: {draft.format}</p>
-            <p>??? ?????: {draft.teams.filter((team) => team.team_name.trim()).length}</p>
-            <p>???? ???????: {draft.starts_at || '--'}</p>
+          <div className="space-y-2 text-sm text-[var(--text-primary)]">
+            <p>اسم البطولة: {draft.name || '--'}</p>
+            <p>النمط: {draft.format}</p>
+            <p>عدد الفرق: {formatArabicNumber(validTeams.length)}</p>
+            <p>موعد البداية: {draft.starts_at || '--'}</p>
+            <p>شعار الراعي: {draft.sponsor_logo_url || '--'}</p>
           </div>
         ) : null}
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm" onClick={prevStep}>
-          ??????
+        <button className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm" onClick={prevStep}>
+          السابق
         </button>
         {!isLastStep ? (
-          <button className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b]" onClick={nextStep}>
-            ??????
+          <button className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b]" onClick={nextStep}>
+            التالي
           </button>
         ) : (
           <button
-            className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-70"
+            className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-70"
             onClick={submit}
             disabled={loading}
           >
-            {loading ? '???? ?????...' : '????? ???????'}
+            {loading ? 'جار إنشاء البطولة...' : 'إنشاء البطولة'}
           </button>
         )}
       </div>
-    </div>
+    </section>
+  )
+}
+
+function Field({ value, onChange, placeholder }) {
+  return (
+    <input
+      className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+    />
   )
 }

@@ -3,9 +3,19 @@ import { env } from './env.js'
 
 const { Pool } = pg
 
+const databaseUrl = new URL(env.databaseUrl)
+const sslMode = databaseUrl.searchParams.get('sslmode')?.toLowerCase()
+const isNeonHost =
+  databaseUrl.hostname.includes('neon.tech') || databaseUrl.hostname.endsWith('.neon.tech')
+const isSupabaseHost = databaseUrl.hostname.includes('supabase.co')
+const needsSsl =
+  sslMode != null
+    ? sslMode !== 'disable'
+    : env.nodeEnv === 'production' || isNeonHost || isSupabaseHost
+
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: env.nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+  connectionString: env.databaseUrl,
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
 })
 
 export async function query(text, params = []) {

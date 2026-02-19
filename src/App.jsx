@@ -39,7 +39,7 @@ export default function App() {
             path="/control"
             element={
               <ProtectedRoute>
-                <RoleGuard allowedRoles={[ROLES.ADMIN, ROLES.STAFF]}>
+                <RoleGuard allowedRoles={[ROLES.STAFF]}>
                   <Control />
                 </RoleGuard>
               </ProtectedRoute>

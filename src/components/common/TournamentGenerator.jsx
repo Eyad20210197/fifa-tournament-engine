@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournamentStore } from '../../store/tournamentStore'
 
@@ -14,8 +14,8 @@ export function TournamentGenerator() {
 
   const options = useMemo(
     () => [
-      { value: 'دوري', label: 'دوري (ذهاب واحد)' },
-      { value: 'خروج مغلوب', label: 'خروج مغلوب (شجرة)' },
+      { value: 'دوري', label: 'دوري (مجموعات)' },
+      { value: 'خروج مغلوب', label: 'خروج مغلوب (إقصائي)' },
     ],
     [],
   )
@@ -23,83 +23,67 @@ export function TournamentGenerator() {
   function onGenerate() {
     setError(null)
     if (teamsCount < 2) {
-      setError('أضف فريقين على الأقل قبل توليد البطولة')
+      setError('أضف فريقين على الأقل قبل التوليد.')
       return
     }
     if (matchesCount > 0) {
-      const ok = confirm('سيتم استبدال الجدول/الشجرة الحالية. هل تريد المتابعة؟')
+      const ok = confirm('سيتم استبدال الجدول الحالي. هل تريد المتابعة؟')
       if (!ok) return
     }
     generateTournament({ format })
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <div className="text-xs text-white/60">مولّد البطولة</div>
-          <div className="mt-2 text-xl font-semibold text-white/90">توليد الجدول / الشجرة</div>
-          <div className="mt-1 text-sm text-white/70">ينشئ المباريات تلقائياً حسب نوع البطولة.</div>
-        </div>
-      </div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
+      <h3 className="text-xl font-semibold">توليد الجدول</h3>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">اختيار النمط ثم توليد المباريات تلقائيا</p>
 
-      {error ? (
-        <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-          {error}
-        </div>
-      ) : null}
+      {error ? <p className="mt-3 rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-          <div className="text-sm text-white/80">نوع البطولة</div>
-          <div className="mt-3 grid gap-2">
-            {options.map((o) => {
-              const active = format === o.value
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="grid gap-2">
+            {options.map((option) => {
+              const active = format === option.value
               return (
                 <button
-                  key={o.value}
+                  key={option.value}
                   className={[
-                    'rounded-2xl border px-4 py-3 text-sm text-right transition',
+                    'min-h-11 rounded-2xl border px-4 py-2 text-right text-sm',
                     active
-                      ? 'border-[#c9a227]/60 bg-[#c9a227]/10 text-[#f6d365]'
-                      : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10',
+                      ? 'border-[var(--primary-color)]/60 bg-[var(--primary-color)]/10 text-[var(--secondary-color)]'
+                      : 'border-white/10 bg-white/5 text-[var(--text-primary)]',
                   ].join(' ')}
-                  onClick={() => setTournament({ format: o.value })}
+                  onClick={() => setTournament({ format: option.value })}
                 >
-                  {o.label}
+                  {option.label}
                 </button>
               )
             })}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-          <div className="text-sm text-white/80">العمليات</div>
-          <div className="mt-3 grid gap-2">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+          <div className="grid gap-2">
             <motion.button
               whileTap={{ scale: 0.99 }}
-              className="rounded-2xl bg-[#c9a227] px-4 py-3 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365] disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b]"
               onClick={onGenerate}
               disabled={teamsCount < 2}
             >
               توليد البطولة
             </motion.button>
             <button
-              className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white/80 hover:bg-white/10"
+              className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm"
               onClick={() => recalcStandings()}
               disabled={format !== 'دوري'}
-              title={format !== 'دوري' ? 'متاح فقط في الدوري' : undefined}
             >
               إعادة حساب الترتيب
             </button>
           </div>
-
-          <div className="mt-3 text-xs text-white/60">
-            الفرق: {teamsCount} • المباريات: {matchesCount}
-          </div>
+          <p className="mt-3 text-xs text-[var(--text-secondary)]">الفرق: {teamsCount} • المباريات: {matchesCount}</p>
         </div>
       </div>
     </div>
   )
 }
-

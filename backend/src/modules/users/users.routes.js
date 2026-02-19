@@ -33,7 +33,7 @@ usersRouter.get(
 
 usersRouter.post(
   '/',
-  authorize('SUPER_ADMIN', 'ADMIN'),
+  authorize('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const parsed = createUserSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -54,4 +54,3 @@ usersRouter.post(
     return res.status(201).json({ success: true, data: result.rows[0] })
   }),
 )
-

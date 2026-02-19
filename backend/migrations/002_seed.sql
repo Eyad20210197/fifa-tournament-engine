@@ -6,8 +6,11 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO users (business_id, username, password_hash, role)
 VALUES
-  (1, 'superadmin', '$2a$10$8f7FGYv6zux1DPZWS9Vy2e5hUQJfUjUlQxw6dyJgbN4S9rbAiSlz2', 'SUPER_ADMIN'),
-  (1, 'admin', '$2a$10$8f7FGYv6zux1DPZWS9Vy2e5hUQJfUjUlQxw6dyJgbN4S9rbAiSlz2', 'ADMIN'),
-  (1, 'staff', '$2a$10$8f7FGYv6zux1DPZWS9Vy2e5hUQJfUjUlQxw6dyJgbN4S9rbAiSlz2', 'STAFF')
-ON CONFLICT (username) DO NOTHING;
-
+  (1, 'superadmin', '$2a$10$b8dt3Jd9COK5V1ZWrHj8nuoNufVvq1dUVuYPJJvEcxMx80/m1eRky', 'SUPER_ADMIN'),
+  (1, 'admin', '$2a$10$b8dt3Jd9COK5V1ZWrHj8nuoNufVvq1dUVuYPJJvEcxMx80/m1eRky', 'ADMIN'),
+  (1, 'staff', '$2a$10$b8dt3Jd9COK5V1ZWrHj8nuoNufVvq1dUVuYPJJvEcxMx80/m1eRky', 'STAFF')
+ON CONFLICT (username) DO UPDATE
+SET
+  password_hash = EXCLUDED.password_hash,
+  role = EXCLUDED.role,
+  business_id = EXCLUDED.business_id;

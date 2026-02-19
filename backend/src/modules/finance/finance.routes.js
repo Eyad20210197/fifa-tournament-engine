@@ -10,22 +10,23 @@ import { HttpError } from '../../utils/httpError.js'
 export const financeRouter = Router()
 
 const financialSchema = z.object({
-  tournament_id: z.number().int().positive(),
-  entry_fee: z.number().nonnegative().default(0),
-  sponsor_amount: z.number().nonnegative().default(0),
-  expected_teams: z.number().int().nonnegative().default(0),
+  tournament_id: z.coerce.number().int().positive(),
+  entry_fee: z.coerce.number().nonnegative().default(0),
+  sponsor_amount: z.coerce.number().nonnegative().default(0),
+  expected_teams: z.coerce.number().int().nonnegative().default(0),
 })
 
 const expenseSchema = z.object({
-  tournament_id: z.number().int().positive(),
+  tournament_id: z.coerce.number().int().positive(),
   title: z.string().min(1),
-  amount: z.number().nonnegative(),
+  amount: z.coerce.number().nonnegative(),
 })
 
-financeRouter.use(authenticate, requireSubscription, authorize('ADMIN'))
+financeRouter.use(authenticate, requireSubscription)
 
 financeRouter.post(
   '/financials',
+  authorize('ADMIN'),
   asyncHandler(async (req, res) => {
     const parsed = financialSchema.safeParse(req.body)
     if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
@@ -49,6 +50,7 @@ financeRouter.post(
 
 financeRouter.post(
   '/expenses',
+  authorize('ADMIN'),
   asyncHandler(async (req, res) => {
     const parsed = expenseSchema.safeParse(req.body)
     if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
@@ -66,7 +68,56 @@ financeRouter.post(
 )
 
 financeRouter.get(
+  '/expenses/:tournamentId',
+  authorize('SUPER_ADMIN', 'ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.tournamentId)
+    const result = await query(
+      `SELECT id, tournament_id, title, amount, created_at
+       FROM tournament_expenses
+       WHERE tournament_id = $1 AND business_id = $2
+       ORDER BY id DESC`,
+      [tournamentId, req.user.business_id],
+    )
+    return res.json({ success: true, data: result.rows })
+  }),
+)
+
+financeRouter.delete(
+  '/expenses/:expenseId',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const expenseId = Number(req.params.expenseId)
+    const result = await query(
+      `DELETE FROM tournament_expenses
+       WHERE id = $1 AND business_id = $2
+       RETURNING id, tournament_id`,
+      [expenseId, req.user.business_id],
+    )
+    if (!result.rows[0]) throw new HttpError(404, 'Expense not found')
+    return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
+financeRouter.delete(
+  '/financials/:tournamentId',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.tournamentId)
+    const result = await query(
+      `DELETE FROM tournament_financials
+       WHERE tournament_id = $1 AND business_id = $2
+       RETURNING id, tournament_id`,
+      [tournamentId, req.user.business_id],
+    )
+    if (!result.rows[0]) throw new HttpError(404, 'Financial setup not found')
+    return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
+financeRouter.get(
   '/summary/:tournamentId',
+  authorize('SUPER_ADMIN', 'ADMIN'),
   asyncHandler(async (req, res) => {
     const tournamentId = Number(req.params.tournamentId)
     const details = await query(
@@ -104,4 +155,3 @@ financeRouter.get(
     })
   }),
 )
-

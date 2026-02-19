@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournamentStore, computeRemainingMs } from '../../store/tournamentStore'
 import { useNow } from '../../hooks/useNow'
+import { formatArabicNumber } from '../../utils/format'
 
 export function MatchControl() {
   const tournamentFormat = useTournamentStore((s) => s.tournament.format)
@@ -31,10 +32,8 @@ export function MatchControl() {
   const now = useNow(250)
   const remainingMs = computeRemainingMs(timer, now)
 
-  const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams])
-  const nameById = useMemo(() => (id) => (id ? teamById.get(id)?.teamName ?? null : null), [teamById])
-
-  const matchById = useMemo(() => new Map(matches.map((m) => [m.id, m])), [matches])
+  const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams])
+  const matchById = useMemo(() => new Map(matches.map((match) => [match.id, match])), [matches])
   const selectedMatch = (selectedId && matchById.get(selectedId)) || null
 
   const sortedMatches = useMemo(() => {
@@ -53,219 +52,100 @@ export function MatchControl() {
     setError(null)
     try {
       action()
-    } catch (e) {
-      setError(e?.message || 'حدث خطأ')
+    } catch (requestError) {
+      setError(requestError?.message || 'حدث خطأ غير متوقع')
     }
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="text-xs text-white/60">التحكم بالمباراة</div>
-          <div className="mt-2 text-xl font-semibold text-white/90">تشغيل المباراة والنتيجة والعداد</div>
-          <div className="mt-1 text-sm text-white/70">
-            النوع الحالي: {tournamentFormat} • يتم إرسال التحديثات فوراً إلى شاشة العرض.
-          </div>
-        </div>
-      </div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
+      <h3 className="text-xl font-semibold">التحكم بالمباراة</h3>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">النمط الحالي: {tournamentFormat}</p>
 
-      {error ? (
-        <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-          {error}
-        </div>
-      ) : null}
+      {error ? <p className="mt-3 rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-4">
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4 xl:col-span-1">
-          <div className="text-sm text-white/80">اختيار المباراة</div>
-          <div className="mt-3 grid gap-2">
+      <div className="mt-4 grid gap-4 xl:grid-cols-4">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3 xl:col-span-1">
+          <p className="mb-2 text-sm text-[var(--text-secondary)]">اختيار المباراة</p>
+          <div className="max-h-[380px] space-y-2 overflow-auto">
             {sortedMatches.length ? (
-              sortedMatches.map((m) => {
-                const isActive = m.id === selectedId
-                const homeTeam = m.homeTeamId ? teamById.get(m.homeTeamId) : null
-                const awayTeam = m.awayTeamId ? teamById.get(m.awayTeamId) : null
-                const home = homeTeam?.teamName || '—'
-                const away = awayTeam?.teamName || '—'
+              sortedMatches.map((match) => {
+                const isActive = match.id === selectedId
+                const home = teamById.get(match.homeTeamId)?.teamName || '--'
+                const away = teamById.get(match.awayTeamId)?.teamName || '--'
                 return (
                   <button
-                    key={m.id}
-                    onClick={() => pickMatch(m.id)}
+                    key={match.id}
+                    onClick={() => pickMatch(match.id)}
                     className={[
-                      'rounded-2xl border px-3 py-3 text-right text-sm transition',
+                      'w-full rounded-2xl border px-3 py-2 text-right text-sm',
                       isActive
-                        ? 'border-[#c9a227]/60 bg-[#c9a227]/10 text-[#f6d365]'
-                        : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10',
+                        ? 'border-[var(--primary-color)]/60 bg-[var(--primary-color)]/10 text-[var(--secondary-color)]'
+                        : 'border-white/10 bg-white/5 text-[var(--text-primary)]',
                     ].join(' ')}
-                    title={`${home} ضد ${away}`}
                   >
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0 overflow-hidden text-white/90 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] leading-snug">
-                        {home} ضد {away}
-                      </div>
-                      <div className="flex-none text-xs text-white/60">{statusArabic(m.status)}</div>
-                    </div>
-                    <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-xs text-white/60">
-                      <div className="flex-none">
-                        {(m.homeScore ?? 0)}:{(m.awayScore ?? 0)}
-                      </div>
-                      <div className="min-w-0 truncate">
-                        {m.mode === 'knockout' && m.roundLabel ? m.roundLabel : ''}
-                      </div>
-                    </div>
+                    <p className="truncate">{home} ضد {away}</p>
+                    <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                      {statusArabic(match.status)} • {formatArabicNumber(match.homeScore ?? 0)} - {formatArabicNumber(match.awayScore ?? 0)}
+                    </p>
                   </button>
                 )
               })
             ) : (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                لا توجد مباريات بعد. قم بتوليد البطولة أولاً.
-              </div>
+              <p className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-[var(--text-secondary)]">لا توجد مباريات حاليا.</p>
             )}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-4 xl:col-span-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="rounded-2xl border border-white/10 bg-black/20 p-3 xl:col-span-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-sm text-white/80">المباراة المحددة</div>
-              <div className="mt-1 text-lg font-semibold text-white/90">
+              <p className="text-sm text-[var(--text-secondary)]">المباراة المحددة</p>
+              <p className="mt-1 text-lg font-semibold">
                 {selectedMatch
-                  ? `${nameById(selectedMatch.homeTeamId) || '—'} ضد ${nameById(selectedMatch.awayTeamId) || '—'}`
-                  : '—'}
-              </div>
-              <div className="mt-1 text-xs text-white/60">
-                الحالة: {selectedMatch ? statusArabic(selectedMatch.status) : '—'} • النتيجة:{' '}
-                {selectedMatch ? `${selectedMatch.homeScore ?? 0}:${selectedMatch.awayScore ?? 0}` : '—'}
-              </div>
+                  ? `${teamById.get(selectedMatch.homeTeamId)?.teamName || '--'} ضد ${teamById.get(selectedMatch.awayTeamId)?.teamName || '--'}`
+                  : '--'}
+              </p>
             </div>
 
-            <div className="rounded-2xl border border-[#c9a227]/30 bg-[#c9a227]/10 px-4 py-3">
-              <div className="text-xs text-white/70">العداد</div>
-              <div className="mt-1 text-2xl font-semibold text-[#f6d365]">{formatMs(remainingMs)}</div>
-              <div className="mt-1 text-xs text-white/60">{timer?.running ? 'يعمل' : 'متوقف'}</div>
+            <div className="rounded-2xl border border-[var(--primary-color)]/35 bg-[var(--primary-color)]/10 px-4 py-2">
+              <p className="text-xs text-[var(--text-secondary)]">العد التنازلي</p>
+              <p className="text-2xl font-semibold text-[var(--secondary-color)]">{formatMs(remainingMs)}</p>
             </div>
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-white/80">النتيجة</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.99 }}
-                  className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365]"
-                  onClick={() => safe(() => selectedId && goalHome(selectedId))}
-                  disabled={!selectedId}
-                >
-                  هدف للمضيف
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.99 }}
-                  className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365]"
-                  onClick={() => safe(() => selectedId && goalAway(selectedId))}
-                  disabled={!selectedId}
-                >
-                  هدف للضيف
-                </motion.button>
-                <button
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                  onClick={() => safe(() => selectedId && undo(selectedId))}
-                  disabled={!selectedId}
-                >
-                  تراجع عن هدف
-                </button>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+              <p className="mb-2 text-sm text-[var(--text-secondary)]">النتيجة</p>
+              <div className="flex flex-wrap gap-2">
+                <ActionBtn onClick={() => safe(() => selectedId && goalHome(selectedId))} disabled={!selectedId}>هدف للأول</ActionBtn>
+                <ActionBtn onClick={() => safe(() => selectedId && goalAway(selectedId))} disabled={!selectedId}>هدف للثاني</ActionBtn>
+                <GhostBtn onClick={() => safe(() => selectedId && undo(selectedId))} disabled={!selectedId}>تراجع</GhostBtn>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-white/80">إدارة المباراة</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.99 }}
-                  className="rounded-xl bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-emerald-400"
-                  onClick={() => safe(() => selectedId && startMatch(selectedId))}
-                  disabled={!selectedId}
-                >
-                  بدء / تشغيل
-                </motion.button>
-                <button
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                  onClick={() => safe(() => selectedId && endMatch(selectedId))}
-                  disabled={!selectedId}
-                >
-                  إنهاء
-                </button>
-                <button
-                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                  onClick={() => safe(() => selectedId && confirmResult(selectedId))}
-                  disabled={!selectedId}
-                >
-                  تأكيد النتيجة
-                </button>
-                <button
-                  className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-100 hover:bg-rose-500/15"
-                  onClick={() => safe(() => selectedId && restartMatch(selectedId))}
-                  disabled={!selectedId}
-                >
-                  إعادة المباراة
-                </button>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+              <p className="mb-2 text-sm text-[var(--text-secondary)]">إدارة المباراة</p>
+              <div className="flex flex-wrap gap-2">
+                <motion.button whileTap={{ scale: 0.99 }} className="min-h-11 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-[#062217]" onClick={() => safe(() => selectedId && startMatch(selectedId))} disabled={!selectedId}>بدء</motion.button>
+                <GhostBtn onClick={() => safe(() => selectedId && endMatch(selectedId))} disabled={!selectedId}>إنهاء</GhostBtn>
+                <GhostBtn onClick={() => safe(() => selectedId && confirmResult(selectedId))} disabled={!selectedId}>تأكيد</GhostBtn>
+                <button className="min-h-11 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-100" onClick={() => safe(() => selectedId && restartMatch(selectedId))} disabled={!selectedId}>إعادة</button>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-sm text-white/80">العداد (تحكم)</div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                className="rounded-xl bg-[#c9a227] px-4 py-2 text-sm font-semibold text-[#07162b] hover:bg-[#f6d365]"
-                onClick={() => safe(() => timerStart())}
-              >
-                تشغيل
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerPause())}
-              >
-                إيقاف مؤقت
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerReset())}
-              >
-                إعادة ضبط
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerAdjust(+30))}
-              >
-                +30ث
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerAdjust(-30))}
-              >
-                -30ث
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerSetDuration(8))}
-              >
-                8 دقائق
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerSetDuration(10))}
-              >
-                10 دقائق
-              </button>
-              <button
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
-                onClick={() => safe(() => timerSetDuration(12))}
-              >
-                12 دقيقة
-              </button>
-            </div>
-            <div className="mt-2 text-xs text-white/60">
-             ملاحظة : ابدأ المباراه وسجل الاهداف ثم اضغط علي انهاء المباراه و تأكيد النتيجه
+          <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+            <p className="mb-2 text-sm text-[var(--text-secondary)]">إدارة العداد</p>
+            <div className="flex flex-wrap gap-2">
+              <ActionBtn onClick={() => safe(() => timerStart())}>تشغيل</ActionBtn>
+              <GhostBtn onClick={() => safe(() => timerPause())}>إيقاف</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerReset())}>إعادة ضبط</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerAdjust(+30))}>+٣٠ث</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerAdjust(-30))}>-٣٠ث</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerSetDuration(8))}>٨ دقائق</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerSetDuration(10))}>١٠ دقائق</GhostBtn>
+              <GhostBtn onClick={() => safe(() => timerSetDuration(12))}>١٢ دقيقة</GhostBtn>
             </div>
           </div>
         </div>
@@ -274,23 +154,42 @@ export function MatchControl() {
   )
 }
 
+function ActionBtn({ children, onClick, disabled = false }) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.99 }}
+      className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </motion.button>
+  )
+}
+
+function GhostBtn({ children, onClick, disabled = false }) {
+  return (
+    <button
+      className="min-h-11 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm disabled:opacity-60"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  )
+}
+
 function statusArabic(status) {
-  switch (status) {
-    case 'pending':
-      return 'لم تبدأ'
-    case 'live':
-      return 'مباشر'
-    case 'finished':
-      return 'انتهت'
-    default:
-      return '—'
-  }
+  if (status === 'pending') return 'لم تبدأ'
+  if (status === 'live') return 'مباشر'
+  if (status === 'finished') return 'انتهت'
+  return '--'
 }
 
 function formatMs(ms) {
   const safe = Number.isFinite(ms) ? Math.max(0, ms) : 0
   const totalSeconds = Math.floor(safe / 1000)
-  const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0')
-  const seconds = String(totalSeconds % 60).padStart(2, '0')
+  const minutes = formatArabicNumber(Math.floor(totalSeconds / 60), { minimumIntegerDigits: 2, useGrouping: false })
+  const seconds = formatArabicNumber(totalSeconds % 60, { minimumIntegerDigits: 2, useGrouping: false })
   return `${minutes}:${seconds}`
 }

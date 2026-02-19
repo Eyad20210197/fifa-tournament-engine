@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+﻿import { useRef, useState } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { readFileAsDataURL } from '../../utils/files'
 
@@ -14,57 +14,29 @@ export function SponsorManager() {
     try {
       const dataUrl = await readFileAsDataURL(file)
       setSponsorLogo(dataUrl)
-    } catch (e) {
-      setError(e?.message || 'فشل رفع شعار الراعي')
+    } catch (requestError) {
+      setError(requestError?.message || 'فشل رفع شعار الراعي')
     } finally {
       if (fileRef.current) fileRef.current.value = ''
     }
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
-      <div className="text-xs text-white/60">الراعي</div>
-      <div className="mt-2 text-xl font-semibold text-white/90">شعار الراعي</div>
-      <div className="mt-1 text-sm text-white/70">سيظهر في شاشة العرض فوراً.</div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
+      <h3 className="text-xl font-semibold">شعار الراعي</h3>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">يظهر مباشرة على شاشة العرض</p>
 
-      {error ? (
-        <div className="mt-4 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-          {error}
-        </div>
-      ) : null}
+      {error ? <p className="mt-3 rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
 
-      <div className="mt-5 flex flex-col gap-4">
-        <div className="flex items-center gap-3">
-          <div className="grid h-14 w-28 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-            {sponsorLogo ? (
-              <img alt="شعار الراعي" src={sponsorLogo} className="h-full w-full object-contain" />
-            ) : (
-              <div className="text-xs text-white/50">لا يوجد</div>
-            )}
-          </div>
-          <div className="text-xs text-white/60">يفضل PNG بخلفية شفافة.</div>
+      <div className="mt-4 flex flex-col gap-3">
+        <div className="grid h-16 place-items-center overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+          {sponsorLogo ? <img alt="شعار الراعي" src={sponsorLogo} className="h-full w-full object-contain" /> : <span className="text-sm text-[var(--text-secondary)]">لا يوجد شعار</span>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            ref={fileRef}
-            className="hidden"
-            type="file"
-            accept="image/*"
-            onChange={(e) => onPick(e.target.files?.[0])}
-          />
-          <button
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-            onClick={() => fileRef.current?.click()}
-          >
-            رفع الشعار
-          </button>
-          <button
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-            onClick={() => setSponsorLogo(null)}
-          >
-            إزالة
-          </button>
+        <div className="flex flex-wrap gap-2">
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => onPick(event.target.files?.[0])} />
+          <button className="min-h-11 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm" onClick={() => fileRef.current?.click()}>رفع</button>
+          <button className="min-h-11 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm" onClick={() => setSponsorLogo(null)}>إزالة</button>
         </div>
       </div>
     </div>

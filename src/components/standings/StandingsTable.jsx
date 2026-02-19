@@ -1,38 +1,31 @@
-import { useMemo } from 'react'
+﻿import { useMemo } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
+import { formatArabicNumber } from '../../utils/format'
 
 export function StandingsTable() {
   const standings = useTournamentStore((s) => s.standings)
   const teams = useTournamentStore((s) => s.teams)
-  const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams])
-  const nameById = useMemo(() => new Map(teams.map((t) => [t.id, t.teamName])), [teams])
+
+  const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams])
   const sorted = useMemo(() => {
     const list = (standings ?? []).slice()
     list.sort((a, b) => {
       if ((b.points ?? 0) !== (a.points ?? 0)) return (b.points ?? 0) - (a.points ?? 0)
       if ((b.gd ?? 0) !== (a.gd ?? 0)) return (b.gd ?? 0) - (a.gd ?? 0)
-      if ((b.gf ?? 0) !== (a.gf ?? 0)) return (b.gf ?? 0) - (a.gf ?? 0)
-      const an = (a.teamId && nameById.get(a.teamId)) || ''
-      const bn = (b.teamId && nameById.get(b.teamId)) || ''
-      if (an && bn) {
-        const c = an.localeCompare(bn, 'ar')
-        if (c !== 0) return c
-      }
-      return String(a.teamId ?? '').localeCompare(String(b.teamId ?? ''))
+      return (b.gf ?? 0) - (a.gf ?? 0)
     })
-    return list.map((r, idx) => ({ ...r, rank: r.rank ?? idx + 1 }))
-  }, [standings, nameById])
+    return list
+  }, [standings])
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-10 backdrop-blur">
-      <div className="text-sm text-white/60">الترتيب</div>
-      <div className="mt-2 text-3xl font-semibold">جدول الترتيب</div>
+    <div className="h-full rounded-3xl border border-white/10 bg-black/20 p-[2.2vw]">
+      <h2 className="mb-4 text-[clamp(1.2rem,2.3vw,3rem)] font-semibold">جدول الترتيب</h2>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-        <table className="w-full text-right text-sm">
-          <thead className="bg-white/5 text-white/70">
+      <div className="h-[72vh] overflow-auto rounded-2xl border border-white/10 bg-black/25">
+        <table className="min-w-full text-right text-[clamp(0.82rem,1.05vw,1.3rem)]">
+          <thead className="sticky top-0 bg-[#10213a] text-[var(--text-secondary)]">
             <tr>
-              <th className="px-4 py-3">#</th>
+              <th className="px-4 py-3">المركز</th>
               <th className="px-4 py-3">الفريق</th>
               <th className="px-4 py-3">لعب</th>
               <th className="px-4 py-3">ف</th>
@@ -40,35 +33,40 @@ export function StandingsTable() {
               <th className="px-4 py-3">خ</th>
               <th className="px-4 py-3">له</th>
               <th className="px-4 py-3">عليه</th>
-              <th className="px-4 py-3">فارق</th>
-              <th className="px-4 py-3">نقاط</th>
+              <th className="px-4 py-3">الفارق</th>
+              <th className="px-4 py-3">النقاط</th>
             </tr>
           </thead>
           <tbody>
-            {sorted?.length ? (
-              sorted.map((row, idx) => (
-                <tr key={row.teamId ?? idx} className="border-t border-white/5">
-                  <td className="px-4 py-3 text-white/70">{row.rank ?? idx + 1}</td>
-                  <td className="px-4 py-3 text-white/90">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <LogoThumb src={row.teamId ? teamById.get(row.teamId)?.logo : null} />
-                      <div className="min-w-0 truncate">{(row.teamId && nameById.get(row.teamId)) || '—'}</div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-white/80">{row.played ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.wins ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.draws ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.losses ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.gf ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.ga ?? 0}</td>
-                  <td className="px-4 py-3 text-white/80">{row.gd ?? 0}</td>
-                  <td className="px-4 py-3 font-semibold text-[#f6d365]">{row.points ?? 0}</td>
-                </tr>
-              ))
+            {sorted.length ? (
+              sorted.map((row, index) => {
+                const team = teamById.get(row.teamId)
+                const rank = index + 1
+                const isTop = rank <= 3
+                return (
+                  <tr key={row.teamId || index} className={['border-t border-white/10', isTop ? 'bg-[var(--primary-color)]/8' : ''].join(' ')}>
+                    <td className="px-4 py-3 font-semibold">{formatArabicNumber(rank)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <LogoThumb src={team?.logo} />
+                        <span className="truncate">{team?.teamName || '--'}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.played ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.wins ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.draws ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.losses ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.gf ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.ga ?? 0)}</td>
+                    <td className="px-4 py-3">{formatArabicNumber(row.gd ?? 0)}</td>
+                    <td className="px-4 py-3 font-semibold text-[var(--secondary-color)]">{formatArabicNumber(row.points ?? 0)}</td>
+                  </tr>
+                )
+              })
             ) : (
               <tr>
-                <td className="px-4 py-8 text-center text-white/60" colSpan={10}>
-                  لا يوجد ترتيب بعد. سيتم إنشاؤه تلقائياً في مرحلة توليد الدوري.
+                <td className="px-4 py-10 text-center text-[var(--text-secondary)]" colSpan={10}>
+                  لا يوجد ترتيب بعد.
                 </td>
               </tr>
             )}
@@ -81,8 +79,8 @@ export function StandingsTable() {
 
 function LogoThumb({ src }) {
   return (
-    <span className="grid h-9 w-9 flex-none place-items-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-      {src ? <img alt="" src={src} className="h-full w-full object-cover" /> : null}
+    <span className="grid h-10 w-10 flex-none place-items-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+      {src ? <img alt="" src={src} className="h-full w-full object-cover" /> : <span>⚽</span>}
     </span>
   )
 }

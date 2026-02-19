@@ -1,77 +1,121 @@
-import { NavLink, Outlet } from 'react-router-dom'
+﻿import { Outlet, useLocation } from 'react-router-dom'
+import { useMemo } from 'react'
 import { useUiStore } from '../../store/uiStore'
 import { useAuth } from '../../auth/useAuth'
+import AppSidebar from '../../components/layout/AppSidebar'
+import AppTopbar from '../../components/layout/AppTopbar'
+import { ROLES } from '../../auth/roles'
 
-const navItems = [
-  { to: '/saas', label: '???? ??????', roles: ['SUPER_ADMIN', 'ADMIN', 'STAFF'] },
-  { to: '/saas/businesses', label: '???????', roles: ['SUPER_ADMIN'] },
-  { to: '/saas/tournaments', label: '????????', roles: ['ADMIN', 'STAFF'] },
-  { to: '/saas/finance', label: '???????', roles: ['ADMIN'] },
-  { to: '/saas/branding', label: '??????? ????????', roles: ['ADMIN', 'STAFF'] },
+const roleLabels = {
+  [ROLES.SUPER_ADMIN]: 'مشرف المنصة',
+  [ROLES.ADMIN]: 'مدير النشاط',
+  [ROLES.STAFF]: 'طاقم التشغيل',
+}
+
+const navByRole = {
+  [ROLES.SUPER_ADMIN]: [
+    { to: '/saas', label: 'لوحة إحصائيات عامة', icon: '📊' },
+    { to: '/saas/accounts', label: 'إدارة الحسابات', icon: '👤' },
+    { to: '/saas/businesses', label: 'إدارة الأنشطة التجارية', icon: '🏢' },
+    { to: '/saas/subscriptions', label: 'تفعيل الاشتراكات', icon: '🧾' },
+    { to: '/saas/users', label: 'إدارة المستخدمين', icon: '👥' },
+    { to: '/saas/finance', label: 'الإدارة المالية', icon: '💰' },
+    { to: '/display', label: 'شاشة العرض', icon: '📺' },
+  ],
+  [ROLES.ADMIN]: [
+    { to: '/saas', label: 'لوحة التحكم', icon: '📊' },
+    { to: '/saas/tournaments/wizard', label: 'إنشاء بطولة', icon: '🧙' },
+    { to: '/saas/teams', label: 'إدارة الفرق', icon: '🛡️' },
+    { to: '/saas/schedule', label: 'إدارة الجدول', icon: '🗓️' },
+    { to: '/saas/finance', label: 'الإدارة المالية', icon: '💰' },
+    { to: '/saas/branding', label: 'تخصيص الهوية', icon: '🎨' },
+    { to: '/saas/subscription-status', label: 'حالة الاشتراك', icon: '✅' },
+    { to: '/display', label: 'شاشة العرض', icon: '📺' },
+  ],
+  [ROLES.STAFF]: [
+    { to: '/saas/tournaments', label: 'المباريات', icon: '⚽' },
+    { to: '/control', label: 'التحكم بالمباراة', icon: '🎮' },
+    { to: '/display', label: 'شاشة العرض', icon: '📺' },
+    { to: '/saas/schedule', label: 'عرض الجدول', icon: '📋' },
+  ],
+}
+
+const routeTitles = [
+  { startsWith: '/saas/businesses', title: 'إدارة الأنشطة التجارية', subtitle: 'استعراض الأنشطة والهوية وتواريخ الاشتراك' },
+  { startsWith: '/saas/accounts', title: 'إدارة الحسابات', subtitle: 'إدارة حسابات المنصة والصلاحيات العامة' },
+  { startsWith: '/saas/subscriptions', title: 'تفعيل الاشتراكات', subtitle: 'متابعة الاشتراكات وتجديدها' },
+  { startsWith: '/saas/tournaments/wizard', title: 'معالج إنشاء البطولة', subtitle: 'إعداد البطولة خطوة بخطوة مع حفظ المسودة' },
+  { startsWith: '/saas/tournaments', title: 'المباريات', subtitle: 'قائمة البطولات والمباريات المرتبطة بها' },
+  { startsWith: '/saas/teams', title: 'إدارة الفرق', subtitle: 'إدارة بيانات الفرق وتحديث التشكيلات' },
+  { startsWith: '/saas/schedule', title: 'إدارة الجدول', subtitle: 'تنظيم توقيت المباريات ومتابعة الحالة' },
+  { startsWith: '/saas/finance', title: 'الإدارة المالية', subtitle: 'ملخص الإيرادات والمصروفات وصافي الربح' },
+  { startsWith: '/saas/users', title: 'إدارة المستخدمين', subtitle: 'مراقبة حسابات الطاقم والأدوار' },
+  { startsWith: '/saas/branding', title: 'تخصيص الهوية', subtitle: 'تعديل العلامة والألوان والشعار' },
+  { startsWith: '/saas/subscription-status', title: 'حالة الاشتراك', subtitle: 'متابعة الحالة الحالية للاشتراك' },
+  { startsWith: '/control', title: 'التحكم بالمباراة', subtitle: 'إدارة البث المباشر وتحديث النتيجة' },
+  { startsWith: '/display', title: 'شاشة العرض', subtitle: 'عرض سينمائي حي للجمهور' },
+  { startsWith: '/saas', title: 'لوحة التحكم', subtitle: 'ملخص الأداء وحالة النظام' },
 ]
 
 export default function DashboardLayout() {
+  const location = useLocation()
   const sidebarOpen = useUiStore((state) => state.sidebarOpen)
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen)
   const toggleSidebar = useUiStore((state) => state.toggleSidebar)
-  const { user, role, logout } = useAuth()
+  const { user, role, logout, branding } = useAuth()
 
-  const visibleNav = navItems.filter((item) => item.roles.includes(role))
+  const navItems = useMemo(() => navByRole[role] || [], [role])
+  const heading = useMemo(() => {
+    return routeTitles.find((item) => location.pathname.startsWith(item.startsWith)) || routeTitles[routeTitles.length - 1]
+  }, [location.pathname])
 
   return (
-    <div className="min-h-screen bg-[#07162b] text-white">
-      <div className="mx-auto flex max-w-7xl gap-4 px-3 py-4 md:px-4">
-        <button
-          className="fixed right-3 top-3 z-50 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs md:hidden"
-          onClick={toggleSidebar}
-        >
-          ???????
-        </button>
+    <div className="min-h-screen bg-[var(--background-dark)] text-[var(--text-primary)]">
+      <div className="mx-auto w-full max-w-[1800px] px-3 py-3 md:px-5 md:py-5">
+        <div className="relative grid gap-4 md:grid-cols-[minmax(0,1fr)_290px]">
+          <section className="order-2 min-w-0 md:order-1">
+            <AppTopbar
+              title={heading.title}
+              subtitle={heading.subtitle}
+              brandName={branding?.brand_name}
+              logoUrl={branding?.logo_url}
+              onToggleSidebar={toggleSidebar}
+            />
+            <main className="min-w-0 rounded-3xl border border-white/10 bg-[var(--surface-card)]/65 p-3 shadow-[0_14px_40px_rgba(0,0,0,0.22)] md:p-5">
+              <Outlet />
+            </main>
+          </section>
 
-        <aside
-          className={[
-            'fixed right-0 top-0 z-40 h-full w-64 border-l border-white/10 bg-[#0b1f3d] p-4 transition md:static md:h-auto md:translate-x-0',
-            sidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0',
-          ].join(' ')}
-        >
-          <h2 className="mb-1 text-lg font-semibold">???? SaaS</h2>
-          <p className="mb-4 text-xs text-white/60">{user?.username || '--'} � {role || '--'}</p>
+          <section className="order-1 hidden h-[calc(100vh-2rem)] sticky top-4 md:order-2 md:block">
+            <AppSidebar
+              items={navItems}
+              userName={user?.username}
+              roleLabel={roleLabels[role] || '--'}
+              onNavigate={() => setSidebarOpen(false)}
+              onLogout={() => logout({ redirect: true })}
+            />
+          </section>
 
-          <nav className="space-y-2">
-            {visibleNav.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
+          {sidebarOpen ? (
+            <>
+              <button
+                type="button"
+                className="fixed inset-0 z-40 bg-black/65 md:hidden"
                 onClick={() => setSidebarOpen(false)}
-                className={({ isActive }) =>
-                  [
-                    'block rounded-xl px-3 py-2 text-sm transition',
-                    isActive
-                      ? 'border border-[#c9a227]/40 bg-[#c9a227]/10 text-[#f6d365]'
-                      : 'border border-transparent bg-white/5 text-white/85 hover:bg-white/10',
-                  ].join(' ')
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-
-          <button
-            className="mt-4 w-full rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100"
-            onClick={() => logout({ redirect: true })}
-          >
-            ????? ??????
-          </button>
-        </aside>
-
-        {sidebarOpen ? (
-          <button className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} aria-label="close" />
-        ) : null}
-
-        <main className="min-w-0 flex-1 pt-12 md:pt-0">
-          <Outlet />
-        </main>
+                aria-label="إغلاق القائمة"
+              />
+              <section className="fixed right-2 top-2 z-50 h-[calc(100vh-1rem)] w-[min(88vw,320px)] md:hidden">
+                <AppSidebar
+                  items={navItems}
+                  userName={user?.username}
+                  roleLabel={roleLabels[role] || '--'}
+                  onNavigate={() => setSidebarOpen(false)}
+                  onLogout={() => logout({ redirect: true })}
+                />
+              </section>
+            </>
+          ) : null}
+        </div>
       </div>
     </div>
   )

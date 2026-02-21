@@ -63,7 +63,15 @@ export default function Control() {
   useEffect(() => {
     async function bootstrapControl() {
       const snapshot = await fetchCurrentLiveState().catch(() => null)
-      if (snapshot) {
+      const snapshotLooksIncomplete =
+        snapshot &&
+        Array.isArray(snapshot.teams) &&
+        Array.isArray(snapshot.matches) &&
+        snapshot.teams.length === 0 &&
+        snapshot.matches.length === 0 &&
+        (snapshot?.liveMatchState?.matchId != null || (snapshot.activeScreen && snapshot.activeScreen !== 'opening'))
+
+      if (snapshot && !snapshotLooksIncomplete) {
         useTournamentStore.getState().applyRemoteState(snapshot)
       } else {
         const tournaments = await fetchTournaments().catch(() => [])
@@ -76,6 +84,8 @@ export default function Control() {
           const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
           if (details) {
             useTournamentStore.getState().applyRemoteState(mapDetailsToControlState(details))
+            // Force a persisted snapshot refresh so stale/incomplete remote payloads are repaired.
+            useTournamentStore.getState().setActiveScreen(useTournamentStore.getState().activeScreen || 'opening')
           }
         }
       }

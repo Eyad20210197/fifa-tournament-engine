@@ -41,6 +41,35 @@ function persistedSlice(state) {
   return { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState }
 }
 
+function isLikelyIncompleteLiveSnapshot(payload) {
+  if (!payload || typeof payload !== 'object') return false
+  const teamsEmpty = Array.isArray(payload.teams) && payload.teams.length === 0
+  const matchesEmpty = Array.isArray(payload.matches) && payload.matches.length === 0
+  if (!teamsEmpty && !matchesEmpty) return false
+
+  const hasLiveMatch = payload?.liveMatchState?.matchId != null
+  const activeScreen = payload?.activeScreen
+  const isActiveScreen = activeScreen && activeScreen !== 'opening'
+  return Boolean(hasLiveMatch || isActiveScreen)
+}
+
+function mergedCollections(currentState, payload) {
+  const keepExisting = isLikelyIncompleteLiveSnapshot(payload)
+  const teams = Array.isArray(payload?.teams) ? (keepExisting && currentState.teams.length > 0 ? currentState.teams : payload.teams) : currentState.teams
+  const matches = Array.isArray(payload?.matches)
+    ? keepExisting && currentState.matches.length > 0
+      ? currentState.matches
+      : payload.matches
+    : currentState.matches
+  const standings = Array.isArray(payload?.standings)
+    ? keepExisting && currentState.standings.length > 0
+      ? currentState.standings
+      : payload.standings
+    : currentState.standings
+
+  return { teams, matches, standings }
+}
+
 function defaultTournament() {
   return {
     name: 'بطولة رمضان 2026',
@@ -82,6 +111,7 @@ export const useTournamentStore = create((set, get) => {
   let commitQueue = Promise.resolve()
 
   async function commit(nextState, { broadcast = true } = {}) {
+    console.log('Committing state:', nextState)
     const snapshot = persistedSlice(nextState)
 
     // تسلسل الحفظ لتفادي تداخل المعاملات
@@ -128,6 +158,7 @@ export const useTournamentStore = create((set, get) => {
         set((s) => ({
           ...s,
           ...payload,
+          ...mergedCollections(s, payload),
           liveMatchState: payload.liveMatchState
             ? {
                 ...payload.liveMatchState,
@@ -232,7 +263,6 @@ export const useTournamentStore = create((set, get) => {
           activeScreen: 'live',
           matches: s.matches.map((m) => {
             if (m.id === matchId) return { ...m, status: 'live' }
-            if (m.status === 'live') return { ...m, status: 'pending' }
             return m
           }),
           liveMatchState: {

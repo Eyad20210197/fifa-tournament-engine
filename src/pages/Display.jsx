@@ -9,6 +9,7 @@ import { BracketView } from '../components/bracket/BracketView'
 import { ScheduleList } from '../components/schedule/ScheduleList'
 import { connectLiveStateSocket, subscribeLiveState } from '../services/liveStateSocket'
 import { fetchCurrentLiveState } from '../services/liveStateService'
+import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
 
 const labels = {
   opening: 'الافتتاح',
@@ -18,6 +19,39 @@ const labels = {
   schedule: 'الجدول',
 }
 
+function mapDetailsToDisplayState(details) {
+  const format = details?.format || 'دوري'
+  const mode = format === 'خروج مغلوب' ? 'knockout' : 'league'
+
+  return {
+    tournament: {
+      name: details?.name || 'Tournament',
+      format,
+    },
+    teams: (details?.teams || []).map((team) => ({
+      id: Number(team.id),
+      teamName: team.team_name || '--',
+      clubName: team.club_name || '',
+    })),
+    matches: (details?.matches || []).map((match, index) => ({
+      id: Number(match.id),
+      order: index + 1,
+      mode,
+      homeTeamId: match.home_team_id ? Number(match.home_team_id) : null,
+      awayTeamId: match.away_team_id ? Number(match.away_team_id) : null,
+      homeScore: Number(match.home_score || 0),
+      awayScore: Number(match.away_score || 0),
+      status: match.status || 'pending',
+      round: Number(match.round_number || 1),
+      resultConfirmed: false,
+      winnerTeamId: null,
+    })),
+    sponsor: {
+      logoBase64: details?.sponsor_logo_url || null,
+    },
+  }
+}
+
 export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
   const tournament = useTournamentStore((s) => s.tournament)
@@ -25,8 +59,31 @@ export default function Display() {
 
   useEffect(() => {
     void fetchCurrentLiveState()
-      .then((snapshot) => {
-        if (snapshot) useTournamentStore.getState().applyRemoteState(snapshot)
+      .then(async (snapshot) => {
+        const snapshotLooksIncomplete =
+          snapshot &&
+          Array.isArray(snapshot.teams) &&
+          Array.isArray(snapshot.matches) &&
+          snapshot.teams.length === 0 &&
+          snapshot.matches.length === 0 &&
+          (snapshot?.liveMatchState?.matchId != null || (snapshot.activeScreen && snapshot.activeScreen !== 'opening'))
+
+        if (snapshot && !snapshotLooksIncomplete) {
+          useTournamentStore.getState().applyRemoteState(snapshot)
+          return
+        }
+
+        const tournaments = await fetchTournaments().catch(() => [])
+        const target =
+          tournaments.find((item) => item.status === 'live') ||
+          tournaments.find((item) => item.status === 'scheduled') ||
+          tournaments[0]
+        if (!target?.id) return
+
+        const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
+        if (details) {
+          useTournamentStore.getState().applyRemoteState(mapDetailsToDisplayState(details))
+        }
       })
       .finally(() => {
         useTournamentStore.setState((state) => ({

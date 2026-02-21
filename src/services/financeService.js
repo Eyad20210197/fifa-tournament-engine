@@ -5,6 +5,11 @@ export async function upsertFinancialSetup(payload) {
   return response.data.data
 }
 
+export async function fetchFinancialSetup(tournamentId) {
+  const response = await apiClient.get(`/finance/financials/${tournamentId}`)
+  return response.data.data
+}
+
 export async function deleteFinancialSetup(tournamentId) {
   const response = await apiClient.delete(`/finance/financials/${tournamentId}`)
   return response.data.data

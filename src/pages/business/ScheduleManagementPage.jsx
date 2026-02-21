@@ -3,6 +3,8 @@ import { useAuth } from '../../auth/useAuth'
 import { ROLES } from '../../auth/roles'
 import {
   bulkScheduleMatches,
+  createTournament,
+  deleteTournament,
   fetchTournamentDetails,
   fetchTournaments,
   launchTournament,
@@ -10,6 +12,7 @@ import {
   updateMatch,
   updateTournament,
 } from '../../services/tournamentService'
+import { deleteFinancialSetup, fetchFinancialSetup, fetchFinanceSummary, upsertFinancialSetup } from '../../services/financeService'
 import { formatArabicDateTime } from '../../utils/format'
 
 const TEAMS_PER_PAGE = 16
@@ -96,13 +99,26 @@ export default function ScheduleManagementPage() {
   const [tournaments, setTournaments] = useState([])
   const [selectedTournamentId, setSelectedTournamentId] = useState('')
   const [details, setDetails] = useState(null)
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    format: '\u062f\u0648\u0631\u064a',
+    starts_at: '',
+    sponsor_logo_url: '',
+  })
   const [settings, setSettings] = useState({
     name: '',
-    format: 'دوري',
+    format: '\u062f\u0648\u0631\u064a',
+    status: 'draft',
     starts_at: '',
     ends_at: '',
     sponsor_logo_url: '',
   })
+  const [financial, setFinancial] = useState({
+    entry_fee: '',
+    sponsor_amount: '',
+    expected_teams: '',
+  })
+  const [financeSummary, setFinanceSummary] = useState(null)
   const [teams, setTeams] = useState([emptyTeam(), emptyTeam()])
   const [teamsPage, setTeamsPage] = useState(1)
   const [matchTimes, setMatchTimes] = useState({})
@@ -126,14 +142,23 @@ export default function ScheduleManagementPage() {
   async function loadDetails(tournamentId) {
     if (!tournamentId) return
     const data = await fetchTournamentDetails(Number(tournamentId))
+    const financialData = await fetchFinancialSetup(Number(tournamentId)).catch(() => null)
+    const financeSummaryData = await fetchFinanceSummary(Number(tournamentId)).catch(() => null)
     setDetails(data)
     setSettings({
       name: data?.name || '',
-      format: data?.format || 'دوري',
+      format: data?.format || '\u062f\u0648\u0631\u064a',
+      status: data?.status || 'draft',
       starts_at: toLocalDateTime(data?.starts_at),
       ends_at: toLocalDateTime(data?.ends_at),
       sponsor_logo_url: data?.sponsor_logo_url || '',
     })
+    setFinancial({
+      entry_fee: String(financialData?.entry_fee ?? ''),
+      sponsor_amount: String(financialData?.sponsor_amount ?? ''),
+      expected_teams: String(financialData?.expected_teams ?? ''),
+    })
+    setFinanceSummary(financeSummaryData || null)
 
     const nextTeams =
       (data?.teams || []).length > 0
@@ -210,6 +235,58 @@ export default function ScheduleManagementPage() {
     }
   }
 
+  async function createNewTournament() {
+    if (!isAdmin) return
+    if (!createForm.name.trim()) {
+      setError('Tournament name is required')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const created = await createTournament({
+        name: createForm.name.trim(),
+        format: createForm.format,
+        starts_at: createForm.starts_at || null,
+        sponsor_logo_url: createForm.sponsor_logo_url.trim() || null,
+        teams: [],
+      })
+      await loadTournaments()
+      setSelectedTournamentId(String(created.id))
+      setCreateForm({
+        name: '',
+        format: createForm.format,
+        starts_at: '',
+        sponsor_logo_url: '',
+      })
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to create tournament')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeTournament() {
+    if (!isAdmin || !selectedTournamentId) return
+    const ok = window.confirm('Delete this tournament and all related matches/teams/financials?')
+    if (!ok) return
+    setSaving(true)
+    setError('')
+    try {
+      await deleteTournament(Number(selectedTournamentId))
+      const rows = await fetchTournaments()
+      setTournaments(rows || [])
+      setSelectedTournamentId(rows?.[0]?.id ? String(rows[0].id) : '')
+      if (!rows?.length) {
+        setDetails(null)
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to delete tournament')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function saveSettings(event) {
     event.preventDefault()
     if (!selectedTournamentId) return
@@ -219,6 +296,7 @@ export default function ScheduleManagementPage() {
       await updateTournament(Number(selectedTournamentId), {
         name: settings.name.trim(),
         format: settings.format,
+        status: settings.status,
         starts_at: settings.starts_at || null,
         ends_at: settings.ends_at || null,
         sponsor_logo_url: settings.sponsor_logo_url.trim() || null,
@@ -307,22 +385,109 @@ export default function ScheduleManagementPage() {
     }
   }
 
+  async function saveFinancialSetup() {
+    if (!isAdmin || !selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      await upsertFinancialSetup({
+        tournament_id: Number(selectedTournamentId),
+        entry_fee: Number(financial.entry_fee || 0),
+        sponsor_amount: Number(financial.sponsor_amount || 0),
+        expected_teams: Number(financial.expected_teams || 0),
+      })
+      const summary = await fetchFinanceSummary(Number(selectedTournamentId)).catch(() => null)
+      setFinanceSummary(summary)
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to save financial setup')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function clearFinancialSetup() {
+    if (!isAdmin || !selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      await deleteFinancialSetup(Number(selectedTournamentId))
+      setFinancial({
+        entry_fee: '',
+        sponsor_amount: '',
+        expected_teams: '',
+      })
+      setFinanceSummary(null)
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to clear financial setup')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <section className="space-y-4">
+      {isAdmin ? (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <p className="text-base font-semibold">Create Tournament</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Field value={createForm.name} onChange={(e) => setCreateForm((s) => ({ ...s, name: e.target.value }))} placeholder="Tournament name" />
+            <select
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+              value={createForm.format}
+              onChange={(event) => setCreateForm((s) => ({ ...s, format: event.target.value }))}
+            >
+              <option value={'\u062f\u0648\u0631\u064a'}>League</option>
+              <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
+            </select>
+            <input
+              type="datetime-local"
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+              value={createForm.starts_at}
+              onChange={(event) => setCreateForm((s) => ({ ...s, starts_at: event.target.value }))}
+            />
+            <Field
+              value={createForm.sponsor_logo_url}
+              onChange={(e) => setCreateForm((s) => ({ ...s, sponsor_logo_url: e.target.value }))}
+              placeholder="Sponsor logo URL"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={createNewTournament}
+            className="mt-3 min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+          >
+            Create Tournament
+          </button>
+        </div>
+      ) : null}
+
       <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Tournament Workspace</h2>
-          <select
-            className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-            value={selectedTournamentId}
-            onChange={(event) => setSelectedTournamentId(event.target.value)}
-          >
-            {tournaments.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} - {translateStatus(item.status)}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+              value={selectedTournamentId}
+              onChange={(event) => setSelectedTournamentId(event.target.value)}
+            >
+              {tournaments.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} - {translateStatus(item.status)}
+                </option>
+              ))}
+            </select>
+            {isAdmin ? (
+              <button
+                type="button"
+                disabled={saving || !selectedTournamentId}
+                onClick={removeTournament}
+                className="min-h-11 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 disabled:opacity-60"
+              >
+                Delete Tournament
+              </button>
+            ) : null}
+          </div>
         </div>
         {details ? (
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
@@ -345,8 +510,18 @@ export default function ScheduleManagementPage() {
                 value={settings.format}
                 onChange={(event) => setSettings((s) => ({ ...s, format: event.target.value }))}
               >
-                <option value="دوري">League</option>
-                <option value="خروج مغلوب">Knockout</option>
+                <option value={'\u062f\u0648\u0631\u064a'}>League</option>
+                <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
+              </select>
+              <select
+                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+                value={settings.status}
+                onChange={(event) => setSettings((s) => ({ ...s, status: event.target.value }))}
+              >
+                <option value="draft">Draft</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="live">Live</option>
+                <option value="finished">Finished</option>
               </select>
               <input
                 type="datetime-local"
@@ -385,6 +560,54 @@ export default function ScheduleManagementPage() {
               </button>
             </div>
           </form>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <p className="text-base font-semibold">Financial Setup</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <Field
+                value={financial.entry_fee}
+                onChange={(e) => setFinancial((s) => ({ ...s, entry_fee: e.target.value }))}
+                placeholder="Entry fee"
+              />
+              <Field
+                value={financial.sponsor_amount}
+                onChange={(e) => setFinancial((s) => ({ ...s, sponsor_amount: e.target.value }))}
+                placeholder="Sponsor amount"
+              />
+              <Field
+                value={financial.expected_teams}
+                onChange={(e) => setFinancial((s) => ({ ...s, expected_teams: e.target.value }))}
+                placeholder="Expected teams"
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={saveFinancialSetup}
+                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+              >
+                Save Financial Setup
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={clearFinancialSetup}
+                className="min-h-11 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 disabled:opacity-60"
+              >
+                Delete Financial Setup
+              </button>
+            </div>
+            {financeSummary ? (
+              <div className="mt-3 grid gap-2 text-xs text-[var(--text-secondary)] md:grid-cols-5">
+                <Stat label="Revenue" value={financeSummary.total_revenue} />
+                <Stat label="Costs" value={financeSummary.total_costs} />
+                <Stat label="Net" value={financeSummary.net_profit} />
+                <Stat label="Margin %" value={financeSummary.profit_margin} />
+                <Stat label="Break-even Teams" value={financeSummary.break_even_teams} />
+              </div>
+            ) : null}
+          </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -624,6 +847,15 @@ function Pager({ page, pagesCount, onChange }) {
   )
 }
 
+function Stat({ label, value }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide">{label}</p>
+      <p className="mt-1 text-sm text-[var(--text-primary)]">{value ?? '--'}</p>
+    </div>
+  )
+}
+
 function translateStatus(status) {
   if (status === 'draft') return 'Draft'
   if (status === 'scheduled') return 'Scheduled'
@@ -631,3 +863,4 @@ function translateStatus(status) {
   if (status === 'finished') return 'Finished'
   return 'Unknown'
 }
+

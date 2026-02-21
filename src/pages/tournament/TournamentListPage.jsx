@@ -31,13 +31,13 @@ export default function TournamentListPage() {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">المباريات والبطولات</h2>
+        <h2 className="text-xl font-semibold">البطولات</h2>
         {role === ROLES.ADMIN ? (
           <Link
             className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b]"
-            to="/saas/tournaments/wizard"
+            to="/saas/schedule"
           >
-            إنشاء بطولة
+            إدارة البطولات
           </Link>
         ) : null}
       </div>

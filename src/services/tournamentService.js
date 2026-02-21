@@ -10,6 +10,11 @@ export async function createTournament(payload) {
   return response.data.data
 }
 
+export async function deleteTournament(tournamentId) {
+  const response = await apiClient.delete(`/tournaments/${tournamentId}`)
+  return response.data.data
+}
+
 export async function updateTournament(tournamentId, payload) {
   const response = await apiClient.patch(`/tournaments/${tournamentId}`, payload)
   return response.data.data

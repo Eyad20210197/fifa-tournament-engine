@@ -48,6 +48,24 @@ financeRouter.post(
   }),
 )
 
+financeRouter.get(
+  '/financials/:tournamentId',
+  authorize('SUPER_ADMIN', 'ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.tournamentId)
+    const result = await query(
+      `SELECT id, tournament_id, entry_fee, sponsor_amount, expected_teams
+       FROM tournament_financials
+       WHERE tournament_id = $1 AND business_id = $2
+       LIMIT 1`,
+      [tournamentId, req.user.business_id],
+    )
+
+    if (!result.rows[0]) throw new HttpError(404, 'Financial setup not found')
+    return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
 financeRouter.post(
   '/expenses',
   authorize('ADMIN'),

@@ -43,6 +43,7 @@ const createTournamentSchema = z.object({
 const updateTournamentSchema = z.object({
   name: z.string().min(1).optional(),
   format: z.enum([FORMAT_LEAGUE, FORMAT_KNOCKOUT]).optional(),
+  status: z.enum(['draft', 'scheduled', 'live', 'finished']).optional(),
   starts_at: optionalDateTimeSchema.optional(),
   ends_at: optionalDateTimeSchema.optional(),
   sponsor_logo_url: z.string().optional().nullable(),
@@ -248,15 +249,17 @@ tournamentsRouter.patch(
       `UPDATE tournaments
        SET name = COALESCE($1, name),
            format = COALESCE($2, format),
-           starts_at = COALESCE($3, starts_at),
-           ends_at = COALESCE($4, ends_at),
-           sponsor_logo_url = COALESCE($5, sponsor_logo_url),
+           status = COALESCE($3, status),
+           starts_at = COALESCE($4, starts_at),
+           ends_at = COALESCE($5, ends_at),
+           sponsor_logo_url = COALESCE($6, sponsor_logo_url),
            updated_at = NOW()
-       WHERE id = $6 AND business_id = $7
+       WHERE id = $7 AND business_id = $8
        RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, updated_at`,
       [
         payload.name ?? null,
         payload.format ?? null,
+        payload.status ?? null,
         payload.starts_at ?? null,
         payload.ends_at ?? null,
         payload.sponsor_logo_url ?? null,
@@ -287,6 +290,22 @@ tournamentsRouter.patch(
       })
     }
 
+    return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
+tournamentsRouter.delete(
+  '/:id',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const result = await query(
+      `DELETE FROM tournaments
+       WHERE id = $1 AND business_id = $2
+       RETURNING id, name`,
+      [tournamentId, req.user.business_id],
+    )
+    if (!result.rows[0]) throw new HttpError(404, 'Tournament not found')
     return res.json({ success: true, data: result.rows[0] })
   }),
 )

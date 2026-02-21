@@ -3,8 +3,6 @@ import { WebSocketServer } from 'ws'
 import { env } from '../config/env.js'
 import { logger } from '../utils/logger.js'
 
-const allowedOrigins = new Set(env.allowedOrigins)
-
 function safeParseMessage(raw) {
   try {
     const parsed = JSON.parse(String(raw || ''))
@@ -39,6 +37,7 @@ export function setupLiveStateWebSocket(httpServer) {
     if (!set) return
 
     const serialized = JSON.stringify(payload)
+
     for (const client of set) {
       if (client === sender) continue
       if (client.readyState === 1) {
@@ -48,20 +47,35 @@ export function setupLiveStateWebSocket(httpServer) {
   }
 
   httpServer.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`)
+    const url = new URL(
+      request.url || '',
+      `http://${request.headers.host || 'localhost'}`
+    )
+
+    // Only handle the correct WS path
     if (url.pathname !== '/ws/live-state') {
       socket.destroy()
       return
     }
 
+    // 🔐 ORIGIN VALIDATION (PRODUCTION SAFE)
     const requestOrigin = String(request.headers.origin || '')
     const enforceOrigin = env.nodeEnv === 'production'
-    if (enforceOrigin && (!requestOrigin || !allowedOrigins.has(requestOrigin))) {
-      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-      socket.destroy()
-      return
+
+    if (enforceOrigin) {
+      const isAllowed =
+        requestOrigin === env.frontendUrl ||
+        requestOrigin.endsWith('.vercel.app')
+
+      if (!isAllowed) {
+        logger.warn(`Blocked WS origin: ${requestOrigin}`)
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
     }
 
+    // 🔐 TOKEN VALIDATION
     const token = url.searchParams.get('token')
     if (!token) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
@@ -85,6 +99,7 @@ export function setupLiveStateWebSocket(httpServer) {
       return
     }
 
+    // ✅ UPGRADE CONNECTION
     wss.handleUpgrade(request, socket, head, (ws) => {
       ws.businessId = businessId
       ws.userId = payload?.sub ? Number(payload.sub) : null
@@ -96,7 +111,7 @@ export function setupLiveStateWebSocket(httpServer) {
           type: 'WS_CONNECTED',
           businessId,
           timestamp: Date.now(),
-        }),
+        })
       )
 
       ws.on('message', (data) => {
@@ -112,7 +127,7 @@ export function setupLiveStateWebSocket(httpServer) {
             businessId,
             timestamp: Date.now(),
           },
-          ws,
+          ws
         )
       })
 

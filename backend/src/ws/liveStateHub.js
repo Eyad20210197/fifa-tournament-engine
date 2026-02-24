@@ -47,22 +47,18 @@ export function setupLiveStateWebSocket(httpServer) {
   }
 
   httpServer.on("upgrade", (request, socket, head) => {
-  console.log("🔥 UPGRADE HIT:", request.url);
-  console.log("Origin:", request.headers.origin);
+    console.log("🔥 UPGRADE HIT:", request.url);
+    console.log("Origin:", request.headers.origin);
 
-  const url = new URL(
-    request.url || "",
-    `http://${request.headers.host || "localhost"}`,
-  );
+    const url = new URL(request.url, "http://localhost");
 
     // Only handle the correct WS path
     if (url.pathname !== "/ws/live-state") {
       socket.destroy();
       return;
     }
-    
 
-    // ORIGIN VALIDATION 
+    // ORIGIN VALIDATION
     const requestOrigin = String(request.headers.origin || "");
     const enforceOrigin = env.nodeEnv === "production";
 

@@ -52,7 +52,7 @@ export function setupLiveStateWebSocket(httpServer) {
 
   const url = new URL(
     request.url || "",
-    `http ://${request.headers.host || "localhost"}`,
+    `http://${request.headers.host || "localhost"}`,
   );
 
     // Only handle the correct WS path

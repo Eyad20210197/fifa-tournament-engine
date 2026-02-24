@@ -47,25 +47,22 @@ export function setupLiveStateWebSocket(httpServer) {
   }
 
   httpServer.on("upgrade", (request, socket, head) => {
-    const url = new URL(
-      request.url || "",
-      `http://${request.headers.host || "localhost"}`,
-    );
+  console.log("🔥 UPGRADE HIT:", request.url);
+  console.log("Origin:", request.headers.origin);
+
+  const url = new URL(
+    request.url || "",
+    `http ://${request.headers.host || "localhost"}`,
+  );
 
     // Only handle the correct WS path
     if (url.pathname !== "/ws/live-state") {
       socket.destroy();
       return;
     }
+    
 
-    // 🔍 DEBUG LOGS (temporary)
-    console.log("===== WS DEBUG =====");
-    console.log("WS ORIGIN:", request.headers.origin);
-    console.log("NODE_ENV:", env.nodeEnv);
-    console.log("FRONTEND_URL:", env.frontendUrl);
-    console.log("====================");
-
-    // 🔐 ORIGIN VALIDATION (PRODUCTION SAFE)
+    // ORIGIN VALIDATION 
     const requestOrigin = String(request.headers.origin || "");
     const enforceOrigin = env.nodeEnv === "production";
 
@@ -106,7 +103,7 @@ export function setupLiveStateWebSocket(httpServer) {
       return;
     }
 
-    // ✅ UPGRADE CONNECTION
+    //  UPGRADE CONNECTION
     wss.handleUpgrade(request, socket, head, (ws) => {
       ws.businessId = businessId;
       ws.userId = payload?.sub ? Number(payload.sub) : null;

@@ -37,8 +37,16 @@ const MAX_RECONNECT_DELAY_MS = 30000
 
 function buildSocketUrl() {
   const token = localStorage.getItem('saasToken')
-  if (!token) return null
-  return `${WS_ENDPOINT}?token=${encodeURIComponent(token)}`
+  console.log('[WS] FRONTEND TOKEN:', token)
+  console.log('[WS] FRONTEND TOKEN LENGTH:', token?.length ?? 0)
+  if (!token || token === 'null' || token === 'undefined') {
+    console.warn('[WS] Missing token, skipping socket connection')
+    return null
+  }
+
+  const wsUrl = `${WS_ENDPOINT}?token=${token}`
+  console.log('[WS] WS URL:', wsUrl)
+  return wsUrl
 }
 
 function notify(message) {
@@ -67,9 +75,11 @@ export function connectLiveStateSocket() {
   const wsUrl = buildSocketUrl()
   if (!wsUrl) return null
 
+  console.log('[WS] CONNECT ATTEMPT:', wsUrl)
   socket = new WebSocket(wsUrl)
 
   socket.onopen = () => {
+    console.log('[WS] OPEN')
     reconnectAttempts = 0
   }
 
@@ -82,12 +92,18 @@ export function connectLiveStateSocket() {
     }
   }
 
-  socket.onclose = () => {
+  socket.onclose = (event) => {
+    console.log('[WS] CLOSE', {
+      code: event?.code,
+      reason: event?.reason,
+      wasClean: event?.wasClean,
+    })
     socket = null
     scheduleReconnect()
   }
 
-  socket.onerror = () => {
+  socket.onerror = (event) => {
+    console.log('[WS] ERROR EVENT:', event)
     if (socket && socket.readyState === WebSocket.OPEN) return
     socket?.close()
   }

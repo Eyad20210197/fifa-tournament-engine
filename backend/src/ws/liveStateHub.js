@@ -15,10 +15,7 @@ function safeParseMessage(raw) {
 export function setupLiveStateWebSocket(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
   const clientsByBusiness = new Map();
-  const debugDisableOrigin =
-    String(process.env.WS_DEBUG_DISABLE_ORIGIN_CHECK || "").toLowerCase() === "true";
-  const debugSkipAuth =
-    String(process.env.WS_DEBUG_SKIP_AUTH || "").toLowerCase() === "true";
+  const allowedOrigins = new Set(env.allowedOrigins);
 
   function addClient(businessId, ws) {
     if (!clientsByBusiness.has(businessId)) {
@@ -50,16 +47,6 @@ export function setupLiveStateWebSocket(httpServer) {
   }
 
   httpServer.on("upgrade", (request, socket, head) => {
-    console.log("========== WS UPGRADE ==========");
-    console.log("RAW URL:", request.url);
-    console.log("HEADERS:", request.headers);
-    console.log("ORIGIN:", request.headers.origin);
-    console.log("ENV NODE_ENV:", env.nodeEnv);
-    console.log("ENV SECRET:", env.jwtSecret);
-    console.log("ENV SECRET LENGTH:", env.jwtSecret?.length ?? 0);
-    console.log("ENV ALLOWED ORIGINS:", env.allowedOrigins);
-    console.log("DEBUG FLAGS:", { debugDisableOrigin, debugSkipAuth });
-
     const url = new URL(request.url, "http://localhost");
     if (url.pathname !== "/ws/live-state") {
       socket.destroy();
@@ -68,57 +55,47 @@ export function setupLiveStateWebSocket(httpServer) {
 
     const requestOrigin = String(request.headers.origin || "");
     const enforceOrigin = env.nodeEnv === "production";
-    if (enforceOrigin && !debugDisableOrigin) {
-      const isAllowed =
-        env.allowedOrigins.includes(requestOrigin) ||
-        requestOrigin.endsWith(".vercel.app");
+    console.log("[WS DEBUG] origin:", requestOrigin || "(missing)");
 
-      if (!isAllowed) {
-        logger.warn(`Blocked WS origin: ${requestOrigin}`);
-        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+    if (enforceOrigin && requestOrigin && !allowedOrigins.has(requestOrigin)) {
+      logger.warn("[WS DEBUG] rejection reason: origin_denied");
+      logger.warn(`[WS DEBUG] origin not allowed: ${requestOrigin}`);
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    if (enforceOrigin && !requestOrigin) {
+      logger.info("[WS DEBUG] origin missing, allowing handshake attempt");
     }
 
     const token = url.searchParams.get("token");
-    console.log("QUERY STRING:", url.searchParams.toString());
-    console.log("TOKEN FROM QUERY:", token);
-    console.log("TOKEN LENGTH:", token?.length ?? 0);
-    console.log("TOKEN SEGMENTS:", token ? String(token).split(".").length : 0);
-    if (token) {
-      const decoded = jwt.decode(token);
-      console.log("JWT DECODED (UNVERIFIED):", decoded);
-    }
+    const decoded = token ? jwt.decode(token) : null;
+    const decodedBusinessId = Number(decoded?.business_id || 0);
+    console.log("[WS DEBUG] token length:", token?.length ?? 0);
+    console.log("[WS DEBUG] decoded businessId:", decodedBusinessId || null);
 
-    if (debugSkipAuth) {
-      console.log("TOKEN SKIPPED FOR TEST");
-    }
-
-    if (!debugSkipAuth && !token) {
+    if (!token) {
+      logger.warn("[WS DEBUG] rejection reason: token_missing");
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
     }
 
-    let payload = null;
-    if (!debugSkipAuth) {
-      try {
-        payload = jwt.verify(token, env.jwtSecret);
-        console.log("JWT VERIFIED:", payload);
-      } catch (err) {
-        console.log("JWT VERIFY ERROR:", err.message);
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-    } else {
-      payload = { business_id: 1, sub: 0 };
+    let payload;
+    try {
+      payload = jwt.verify(token, env.jwtSecret);
+    } catch (err) {
+      logger.warn(`[WS DEBUG] rejection reason: jwt_invalid (${err.message})`);
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
     }
 
     const businessId = Number(payload?.business_id);
-    console.log("BUSINESS ID:", businessId);
+    console.log("[WS DEBUG] verified businessId:", businessId || null);
     if (!businessId) {
+      logger.warn("[WS DEBUG] rejection reason: business_id_missing");
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
@@ -129,6 +106,7 @@ export function setupLiveStateWebSocket(httpServer) {
       ws.userId = payload?.sub ? Number(payload.sub) : null;
 
       addClient(businessId, ws);
+      logger.info(`[WS DEBUG] WS_CONNECTED businessId=${businessId}`);
       ws.send(
         JSON.stringify({
           type: "WS_CONNECTED",

@@ -37,7 +37,6 @@ const MAX_RECONNECT_DELAY_MS = 30000
 
 function buildSocketUrl() {
   const token = localStorage.getItem('saasToken')
-  console.log('[WS] FRONTEND TOKEN:', token)
   console.log('[WS] FRONTEND TOKEN LENGTH:', token?.length ?? 0)
   if (!token || token === 'null' || token === 'undefined') {
     console.warn('[WS] Missing token, skipping socket connection')
@@ -45,7 +44,7 @@ function buildSocketUrl() {
   }
 
   const wsUrl = `${WS_ENDPOINT}?token=${token}`
-  console.log('[WS] WS URL:', wsUrl)
+  console.log('[WS] WS ENDPOINT:', WS_ENDPOINT)
   return wsUrl
 }
 
@@ -75,7 +74,7 @@ export function connectLiveStateSocket() {
   const wsUrl = buildSocketUrl()
   if (!wsUrl) return null
 
-  console.log('[WS] CONNECT ATTEMPT:', wsUrl)
+  console.log('[WS] CONNECT ATTEMPT')
   socket = new WebSocket(wsUrl)
 
   socket.onopen = () => {

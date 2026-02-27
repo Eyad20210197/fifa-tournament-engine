@@ -11,8 +11,13 @@ function parseAllowedOrigins() {
     .map((origin) => origin.trim())
     .filter(Boolean)
 
+  const frontendUrl = String(process.env.FRONTEND_URL || '').trim()
+  if (frontendUrl) {
+    origins.push(frontendUrl)
+  }
+
   if (origins.length > 0) {
-    return origins
+    return [...new Set(origins)]
   }
 
   if (process.env.NODE_ENV === 'production') {
@@ -29,6 +34,7 @@ export const env = {
   databaseUrl: process.env.DATABASE_URL || '',
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
+  frontendUrl: String(process.env.FRONTEND_URL || '').trim(),
   allowedOrigins: parseAllowedOrigins(),
 }
 

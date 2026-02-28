@@ -1,5 +1,5 @@
 import * as Ably from 'ably'
-import { ABLY_AUTH_URL, ABLY_CLIENT_ID } from '../config/env'
+import { ABLY_AUTH_URL } from '../config/env'
 
 const TOKEN_KEY = 'saasToken'
 
@@ -20,7 +20,6 @@ export function getAblyRealtimeClient() {
     authUrl: ABLY_AUTH_URL,
     authMethod: 'GET',
     authHeaders: authHeaders(),
-    clientId: ABLY_CLIENT_ID || undefined,
     autoConnect: true,
   })
 

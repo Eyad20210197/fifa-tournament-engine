@@ -6,6 +6,22 @@ import { useSwipePages } from '../../hooks/useSwipePages'
 
 const ROWS_PER_PAGE = 4
 
+function compareMatchesByStartTime(a, b) {
+  const aTime = Date.parse(a?.startsAt || a?.starts_at || '')
+  const bTime = Date.parse(b?.startsAt || b?.starts_at || '')
+  const aHas = Number.isFinite(aTime)
+  const bHas = Number.isFinite(bTime)
+
+  if (aHas && bHas && aTime !== bTime) return aTime - bTime
+  if (aHas !== bHas) return aHas ? -1 : 1
+
+  const aOrder = Number(a?.order || 0)
+  const bOrder = Number(b?.order || 0)
+  if (aOrder !== bOrder) return aOrder - bOrder
+
+  return Number(a?.id || 0) - Number(b?.id || 0)
+}
+
 export function ScheduleList() {
   const matches = useTournamentStore((s) => s.matches)
   const teams = useTournamentStore((s) => s.teams)
@@ -14,7 +30,7 @@ export function ScheduleList() {
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams])
   const sorted = useMemo(() => {
     const list = (matches ?? []).slice()
-    list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.id).localeCompare(String(b.id)))
+    list.sort(compareMatchesByStartTime)
     return list
   }, [matches])
 

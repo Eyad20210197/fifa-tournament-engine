@@ -34,6 +34,7 @@ function mapDetailsToControlState(details) {
       id: Number(match.id),
       order: index + 1,
       mode,
+      startsAt: match.starts_at || null,
       homeTeamId: match.home_team_id ? Number(match.home_team_id) : null,
       awayTeamId: match.away_team_id ? Number(match.away_team_id) : null,
       homeScore: Number(match.home_score || 0),
@@ -100,6 +101,23 @@ export default function Control() {
 
     void bootstrapControl()
     return undefined
+  }, [])
+
+  useEffect(() => {
+    const syncFromServer = async () => {
+      const snapshot = await fetchCurrentLiveState().catch(() => null)
+      if (snapshot && typeof snapshot === 'object') {
+        useTournamentStore.getState().applyRemoteState(snapshot)
+      }
+    }
+
+    const intervalId = setInterval(() => {
+      void syncFromServer()
+    }, 12000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
   }, [])
 
   useAblyChannel(tournamentChannel(tournamentId), 'state:update', (data) => {

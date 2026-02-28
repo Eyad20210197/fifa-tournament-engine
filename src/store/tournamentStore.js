@@ -102,6 +102,7 @@ function statusForRemaining(remainingMs, statusHint) {
 export const useTournamentStore = create((set, get) => {
   let isApplyingRemote = false
   let commitQueue = Promise.resolve()
+  let localTimerIntervalId = null
 
   async function commit(nextState) {
     const snapshot = persistedSlice(nextState)
@@ -156,6 +157,40 @@ export const useTournamentStore = create((set, get) => {
       }
     })
   }
+
+  function ensureLocalTimerTicker() {
+    if (localTimerIntervalId) return
+    localTimerIntervalId = setInterval(() => {
+      set((state) => {
+        const timerEntries = Object.entries(state.matchTimers || {})
+        if (!timerEntries.length) return state
+
+        let changed = false
+        const nextTimers = { ...state.matchTimers }
+        for (const [rawMatchId, timer] of timerEntries) {
+          if (!timer || timer.status !== 'running') continue
+          const currentRemaining = Math.max(0, Number(timer.remainingMs ?? 0))
+          if (!Number.isFinite(currentRemaining) || currentRemaining <= 0) {
+            nextTimers[rawMatchId] = { ...timer, remainingMs: 0, status: 'finished' }
+            changed = true
+            continue
+          }
+          const nextRemaining = Math.max(0, currentRemaining - 1000)
+          nextTimers[rawMatchId] = {
+            ...timer,
+            remainingMs: nextRemaining,
+            status: nextRemaining <= 0 ? 'finished' : 'running',
+          }
+          changed = true
+        }
+
+        if (!changed) return state
+        return { ...state, matchTimers: nextTimers }
+      })
+    }, 1000)
+  }
+
+  ensureLocalTimerTicker()
 
   return {
     ...defaultState(),
@@ -296,7 +331,11 @@ export const useTournamentStore = create((set, get) => {
       setState((s) => ({
         ...s,
         activeScreen: 'live',
-        matches: s.matches.map((m) => (m.id === matchId ? { ...m, status: 'live' } : m)),
+        matches: s.matches.map((m) =>
+          m.id === matchId
+            ? { ...m, status: 'live', resultConfirmed: false, winnerTeamId: null }
+            : m,
+        ),
         liveMatchState: { ...s.liveMatchState, matchId, goalEvents: [] },
       }))
     },
@@ -433,38 +472,40 @@ export const useTournamentStore = create((set, get) => {
 
     startTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       const current = get().matchTimers[scopedMatchId]
       const durationMs = Math.max(1, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS))
-      updateMatchTimerLocal(scopedMatchId, { durationMs, status: 'running' })
+      const currentRemaining = Math.max(0, Number(current?.remainingMs ?? durationMs))
+      const remainingMs = currentRemaining > 0 ? currentRemaining : durationMs
+      updateMatchTimerLocal(scopedMatchId, { durationMs, remainingMs, status: 'running' })
       void startMatchTimer({ tournamentId, matchId: scopedMatchId, durationMs }).catch(() => null)
     },
 
     pauseTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       updateMatchTimerLocal(scopedMatchId, { status: 'paused' })
       void pauseMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     resumeTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       updateMatchTimerLocal(scopedMatchId, { status: 'running' })
       void resumeMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     resetTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       set((state) => {
         const next = { ...state.matchTimers }
         delete next[scopedMatchId]
@@ -475,9 +516,9 @@ export const useTournamentStore = create((set, get) => {
 
     adjustTimerSeconds: (deltaSeconds, matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       const deltaMs = (Number(deltaSeconds) || 0) * 1000
       if (!Number.isFinite(deltaMs) || deltaMs === 0) return
       const current = get().matchTimers[scopedMatchId]
@@ -491,9 +532,9 @@ export const useTournamentStore = create((set, get) => {
 
     clearMatchTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
-      if (!scopedMatchId) return
+      if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
-      if (!tournamentId) return
+      if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       set((state) => {
         const next = { ...state.matchTimers }
         delete next[scopedMatchId]

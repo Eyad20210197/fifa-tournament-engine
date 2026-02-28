@@ -43,6 +43,22 @@ function toUtcIsoFromLocalDateTime(value) {
   return parsed.toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
+function compareMatchesByStartTime(a, b) {
+  const aTime = Date.parse(a?.starts_at || '')
+  const bTime = Date.parse(b?.starts_at || '')
+  const aHas = Number.isFinite(aTime)
+  const bHas = Number.isFinite(bTime)
+
+  if (aHas && bHas && aTime !== bTime) return aTime - bTime
+  if (aHas !== bHas) return aHas ? -1 : 1
+
+  const aRound = Number(a?.round_number || 0)
+  const bRound = Number(b?.round_number || 0)
+  if (aRound !== bRound) return aRound - bRound
+
+  return Number(a?.id || 0) - Number(b?.id || 0)
+}
+
 function emptyTeam() {
   return { team_name: '', club_name: '' }
 }
@@ -238,7 +254,11 @@ export default function ScheduleManagementPage() {
     return teams.slice(start, start + TEAMS_PER_PAGE)
   }, [teams, teamsPage])
 
-  const allMatches = details?.matches || []
+  const allMatches = useMemo(() => {
+    const list = (details?.matches || []).slice()
+    list.sort(compareMatchesByStartTime)
+    return list
+  }, [details?.matches])
   const matchesPagesCount = Math.max(1, Math.ceil(allMatches.length / MATCHES_PER_PAGE))
   const pagedMatches = useMemo(() => {
     const start = (matchesPage - 1) * MATCHES_PER_PAGE

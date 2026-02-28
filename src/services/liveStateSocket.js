@@ -1,3 +1,4 @@
+import { WS_URL } from '../config/env'
 const MAX_RECONNECT_DELAY_MS = 30000
 const MAX_RECONNECT_ATTEMPTS = 12
 
@@ -31,20 +32,17 @@ function clearReconnectTimer() {
   reconnectTimer = null
 }
 
-function getSocketBaseUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${protocol}://${window.location.host}/ws`
-}
-
 function buildSocketUrl() {
   const token = localStorage.getItem('saasToken')
   if (!token || token === 'null' || token === 'undefined') {
     return null
   }
 
-  const wsUrl = new URL(getSocketBaseUrl())
-  wsUrl.searchParams.set('token', token)
-  return wsUrl.toString()
+  if (!WS_URL) {
+    return null
+  }
+
+  return `${WS_URL}?token=${encodeURIComponent(token)}`
 }
 
 function nextReconnectDelayMs() {

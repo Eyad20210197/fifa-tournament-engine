@@ -126,6 +126,7 @@ export default function Control() {
     ],
     [],
   )
+  const displayUrl = useMemo(() => new URL('/display', window.location.href).toString(), [])
 
   async function onImportFile(file) {
     if (!file) return
@@ -223,7 +224,7 @@ export default function Control() {
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <Card title="رابط شاشة العرض">
               <p className="text-sm text-[var(--text-secondary)]">استخدم الرابط التالي على شاشة التلفاز:</p>
-              <code className="mt-2 block rounded-xl bg-black/30 px-3 py-2 text-sm">{window.location.origin}/display</code>
+              <code className="mt-2 block rounded-xl bg-black/30 px-3 py-2 text-sm">{displayUrl}</code>
             </Card>
             <Card title="ملاحظات التشغيل">
               <p className="text-sm text-[var(--text-secondary)]">

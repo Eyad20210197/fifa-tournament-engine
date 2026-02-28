@@ -1,15 +1,5 @@
 import axios from 'axios'
-
-function normalizeApiBaseUrl(raw) {
-  if (!raw) return '/api'
-  const trimmed = String(raw).trim().replace(/\/+$/, '')
-  if (trimmed === '/api' || trimmed.endsWith('/api')) return trimmed
-  return `${trimmed}/api`
-}
-
-const API_BASE_URL = normalizeApiBaseUrl(
-  import.meta.env.NEXT_PUBLIC_API_URL || import.meta.env.VITE_API_BASE_URL,
-)
+import { API_BASE_URL } from '../config/env'
 const TOKEN_KEY = 'saasToken'
 
 let onUnauthorized = null

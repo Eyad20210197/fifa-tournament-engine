@@ -77,7 +77,9 @@ export function BracketView() {
               <p className="truncate text-right font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.homeName}</p>
               <div className="text-center">
                 <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
-                  {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
+                  {isUpcomingMatch(match.status)
+                    ? 'VS'
+                    : `${formatArabicNumber(match.homeScore ?? 0)} : ${formatArabicNumber(match.awayScore ?? 0)}`}
                 </p>
                 <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{match.legNumber === 2 ? 'إياب' : 'ذهاب'}</p>
                 <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{statusLabel(match.status)}</p>
@@ -100,4 +102,8 @@ function statusLabel(status) {
   if (value === 'et' || value === 'extra_time') return 'ET'
   if (value === 'penalties' || value === 'pens') return 'Penalties'
   return 'Upcoming'
+}
+
+function isUpcomingMatch(status) {
+  return String(status || '').toLowerCase() === 'pending'
 }

@@ -5,7 +5,7 @@ import { asyncHandler } from '../../utils/asyncHandler.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { requireSubscription } from '../../middleware/requireSubscription.js'
 import { HttpError } from '../../utils/httpError.js'
-import { publishEventNonBlocking } from '../../services/ably.service.js'
+import { publishEvent } from '../../services/ably.service.js'
 import { adminChannel, displayChannel, matchChannel, tournamentChannel } from '../../services/channel-names.service.js'
 import { adjustTimer, clearTimer, pauseTimer, resumeTimer, setTimerDuration, startTimer } from '../../services/live-timer.service.js'
 
@@ -53,7 +53,7 @@ function normalizeTimers(snapshot) {
   return source
 }
 
-function publishScoreAndStatusDiff(previousSnapshot, nextSnapshot, tournamentId) {
+async function publishScoreAndStatusDiff(previousSnapshot, nextSnapshot, tournamentId) {
   const previousMatches = toMapById(previousSnapshot?.matches)
   const nextMatches = toMapById(nextSnapshot?.matches)
 
@@ -80,24 +80,30 @@ function publishScoreAndStatusDiff(previousSnapshot, nextSnapshot, tournamentId)
     const tournamentCh = tournamentChannel(tournamentId)
 
     if (prevHome !== nextHome || prevAway !== nextAway) {
-      if (matchCh) publishEventNonBlocking(matchCh, 'score:update', basePayload)
-      if (tournamentCh) publishEventNonBlocking(tournamentCh, 'score:update', basePayload)
+      await Promise.all([
+        matchCh ? publishEvent(matchCh, 'score:update', basePayload) : Promise.resolve(),
+        tournamentCh ? publishEvent(tournamentCh, 'score:update', basePayload) : Promise.resolve(),
+      ])
     }
 
     if (prevStatus !== nextStatus) {
       if (prevStatus !== 'live' && nextStatus === 'live') {
-        if (matchCh) publishEventNonBlocking(matchCh, 'match:start', basePayload)
-        if (tournamentCh) publishEventNonBlocking(tournamentCh, 'match:start', basePayload)
+        await Promise.all([
+          matchCh ? publishEvent(matchCh, 'match:start', basePayload) : Promise.resolve(),
+          tournamentCh ? publishEvent(tournamentCh, 'match:start', basePayload) : Promise.resolve(),
+        ])
       }
       if (prevStatus !== 'finished' && nextStatus === 'finished') {
-        if (matchCh) publishEventNonBlocking(matchCh, 'match:end', basePayload)
-        if (tournamentCh) publishEventNonBlocking(tournamentCh, 'match:end', basePayload)
+        await Promise.all([
+          matchCh ? publishEvent(matchCh, 'match:end', basePayload) : Promise.resolve(),
+          tournamentCh ? publishEvent(tournamentCh, 'match:end', basePayload) : Promise.resolve(),
+        ])
       }
     }
   }
 }
 
-function publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId) {
+async function publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId) {
   const prevTimers = normalizeTimers(previousSnapshot)
   const nextTimers = normalizeTimers(nextSnapshot)
   const matchIds = new Set([...Object.keys(prevTimers), ...Object.keys(nextTimers)])
@@ -112,8 +118,10 @@ function publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId) {
 
     if (!next && prev) {
       const payload = { matchId, tournamentId, status: 'cleared', updatedAt: new Date().toISOString() }
-      if (matchCh) publishEventNonBlocking(matchCh, 'timer:clear', payload)
-      if (tournamentCh) publishEventNonBlocking(tournamentCh, 'timer:clear', payload)
+      await Promise.all([
+        matchCh ? publishEvent(matchCh, 'timer:clear', payload) : Promise.resolve(),
+        tournamentCh ? publishEvent(tournamentCh, 'timer:clear', payload) : Promise.resolve(),
+      ])
       continue
     }
 
@@ -133,12 +141,14 @@ function publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId) {
       status: String(next.status || 'paused'),
       updatedAt: new Date().toISOString(),
     }
-    if (matchCh) publishEventNonBlocking(matchCh, 'timer:update', payload)
-    if (tournamentCh) publishEventNonBlocking(tournamentCh, 'timer:update', payload)
+    await Promise.all([
+      matchCh ? publishEvent(matchCh, 'timer:update', payload) : Promise.resolve(),
+      tournamentCh ? publishEvent(tournamentCh, 'timer:update', payload) : Promise.resolve(),
+    ])
   }
 }
 
-function publishSnapshotEvents(previousSnapshot, nextSnapshot) {
+async function publishSnapshotEvents(previousSnapshot, nextSnapshot) {
   const tournamentId = toNumber(nextSnapshot?.tournament?.id || nextSnapshot?.tournamentId)
   if (!tournamentId) return
 
@@ -151,8 +161,10 @@ function publishSnapshotEvents(previousSnapshot, nextSnapshot) {
     updatedAt: new Date().toISOString(),
   }
 
-  if (tournamentCh) publishEventNonBlocking(tournamentCh, 'state:update', statePayload)
-  if (adminCh) publishEventNonBlocking(adminCh, 'state:update', statePayload)
+  await Promise.all([
+    tournamentCh ? publishEvent(tournamentCh, 'state:update', statePayload) : Promise.resolve(),
+    adminCh ? publishEvent(adminCh, 'state:update', statePayload) : Promise.resolve(),
+  ])
 
   const prevScreen = String(previousSnapshot?.activeScreen || '')
   const nextScreen = String(nextSnapshot?.activeScreen || '')
@@ -162,12 +174,14 @@ function publishSnapshotEvents(previousSnapshot, nextSnapshot) {
       activeScreen: nextScreen,
       updatedAt: new Date().toISOString(),
     }
-    if (displayCh) publishEventNonBlocking(displayCh, 'display:state', displayPayload)
-    if (adminCh) publishEventNonBlocking(adminCh, 'display:state', displayPayload)
+    await Promise.all([
+      displayCh ? publishEvent(displayCh, 'display:state', displayPayload) : Promise.resolve(),
+      adminCh ? publishEvent(adminCh, 'display:state', displayPayload) : Promise.resolve(),
+    ])
   }
 
-  publishScoreAndStatusDiff(previousSnapshot, nextSnapshot, tournamentId)
-  publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId)
+  await publishScoreAndStatusDiff(previousSnapshot, nextSnapshot, tournamentId)
+  await publishTimerDiff(previousSnapshot, nextSnapshot, tournamentId)
 }
 
 liveStateRouter.get(
@@ -215,7 +229,7 @@ liveStateRouter.put(
     )
     const nextSnapshot = result.rows[0]?.payload || null
     if (nextSnapshot) {
-      publishSnapshotEvents(previousSnapshot, nextSnapshot)
+      await publishSnapshotEvents(previousSnapshot, nextSnapshot)
     }
 
     return res.json({
@@ -236,7 +250,7 @@ liveStateRouter.post(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const data = startTimer({
+    const data = await startTimer({
       businessId: req.user.business_id,
       tournamentId: parsed.data.tournamentId,
       matchId,
@@ -254,7 +268,7 @@ liveStateRouter.post(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const data = pauseTimer({
+    const data = await pauseTimer({
       businessId: req.user.business_id,
       tournamentId: parsed.data.tournamentId,
       matchId,
@@ -271,7 +285,7 @@ liveStateRouter.post(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const data = resumeTimer({
+    const data = await resumeTimer({
       businessId: req.user.business_id,
       tournamentId: parsed.data.tournamentId,
       matchId,
@@ -288,7 +302,7 @@ liveStateRouter.post(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const data = setTimerDuration({
+    const data = await setTimerDuration({
       businessId: req.user.business_id,
       tournamentId: parsed.data.tournamentId,
       matchId,
@@ -306,7 +320,7 @@ liveStateRouter.post(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const data = adjustTimer({
+    const data = await adjustTimer({
       businessId: req.user.business_id,
       tournamentId: parsed.data.tournamentId,
       matchId,
@@ -324,7 +338,7 @@ liveStateRouter.delete(
     const matchId = toNumber(req.params.matchId)
     if (!matchId) throw new HttpError(400, 'Invalid matchId')
 
-    const removed = clearTimer(req.user.business_id, parsed.data.tournamentId, matchId)
+    const removed = await clearTimer(req.user.business_id, parsed.data.tournamentId, matchId)
     return res.json({ success: true, data: { removed } })
   }),
 )

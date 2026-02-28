@@ -6,8 +6,10 @@ const ably = new Ably.Rest({ key: env.ablyApiKey })
 
 export async function publishEvent(channelName, eventName, payload) {
   if (!channelName || !eventName) return false
+  logger.info('[ABLY] Publishing ->', channelName, eventName, payload)
   const channel = ably.channels.get(channelName)
   await channel.publish(eventName, payload)
+  logger.info('[ABLY] Published successfully ->', channelName, eventName)
   return true
 }
 
@@ -24,14 +26,4 @@ export async function generateTokenRequest(clientId) {
     }),
   })
   return tokenRequest
-}
-
-export function publishEventNonBlocking(channelName, eventName, payload) {
-  void publishEvent(channelName, eventName, payload).catch((error) => {
-    logger.error('Ably publish failed:', {
-      channelName,
-      eventName,
-      message: error?.message || 'unknown-error',
-    })
-  })
 }

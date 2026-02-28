@@ -6,7 +6,7 @@ import { authenticate } from '../../middleware/authenticate.js'
 import { authorize } from '../../middleware/authorize.js'
 import { requireSubscription } from '../../middleware/requireSubscription.js'
 import { HttpError } from '../../utils/httpError.js'
-import { publishEventNonBlocking } from '../../services/ably.service.js'
+import { publishEvent } from '../../services/ably.service.js'
 import { matchChannel, tournamentChannel } from '../../services/channel-names.service.js'
 
 export const tournamentsRouter = Router()
@@ -86,6 +86,7 @@ const bulkScheduleSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   start_time: z.string().regex(/^\d{2}:\d{2}$/),
   interval_minutes: z.coerce.number().int().nonnegative().max(600).default(30),
+  timezone_offset_minutes: z.coerce.number().int().min(-840).max(840).optional().default(0),
 })
 
 function shuffleTeams(teams) {
@@ -565,8 +566,19 @@ tournamentsRouter.patch(
     if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
 
     const payload = parsed.data
-    const startLocal = new Date(`${payload.date}T${payload.start_time}:00`)
-    if (Number.isNaN(startLocal.getTime())) throw new HttpError(400, 'Invalid date/time')
+    const [yearText, monthText, dayText] = payload.date.split('-')
+    const [hourText, minuteText] = payload.start_time.split(':')
+    const year = Number(yearText)
+    const month = Number(monthText)
+    const day = Number(dayText)
+    const hour = Number(hourText)
+    const minute = Number(minuteText)
+    if ([year, month, day, hour, minute].some((value) => !Number.isFinite(value))) {
+      throw new HttpError(400, 'Invalid date/time')
+    }
+    // Convert client-local date/time to UTC using the client-provided offset.
+    const startUtcMs = Date.UTC(year, month - 1, day, hour, minute) + payload.timezone_offset_minutes * 60000
+    if (Number.isNaN(startUtcMs)) throw new HttpError(400, 'Invalid date/time')
 
     const updated = await withTransaction(async (client) => {
       const check = await client.query(
@@ -580,7 +592,7 @@ tournamentsRouter.patch(
 
       const uniqueIds = [...new Set(payload.match_ids)]
       for (let i = 0; i < uniqueIds.length; i += 1) {
-        const slot = new Date(startLocal.getTime() + i * payload.interval_minutes * 60000)
+        const slot = new Date(startUtcMs + i * payload.interval_minutes * 60000)
         const startsAt = slot.toISOString().replace(/\.\d{3}Z$/, 'Z')
         const result = await client.query(
           `UPDATE tournament_matches
@@ -675,17 +687,23 @@ tournamentsRouter.patch(
     const nextStatus = String(updatedMatch.status || '')
 
     if (previousHome !== basePayload.homeScore || previousAway !== basePayload.awayScore) {
-      if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'score:update', basePayload)
-      if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'score:update', basePayload)
+      await Promise.all([
+        matchIdChannel ? publishEvent(matchIdChannel, 'score:update', basePayload) : Promise.resolve(),
+        tournamentIdChannel ? publishEvent(tournamentIdChannel, 'score:update', basePayload) : Promise.resolve(),
+      ])
     }
     if (previousStatus !== nextStatus) {
       if (previousStatus !== 'live' && nextStatus === 'live') {
-        if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'match:start', basePayload)
-        if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'match:start', basePayload)
+        await Promise.all([
+          matchIdChannel ? publishEvent(matchIdChannel, 'match:start', basePayload) : Promise.resolve(),
+          tournamentIdChannel ? publishEvent(tournamentIdChannel, 'match:start', basePayload) : Promise.resolve(),
+        ])
       }
       if (previousStatus !== 'finished' && nextStatus === 'finished') {
-        if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'match:end', basePayload)
-        if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'match:end', basePayload)
+        await Promise.all([
+          matchIdChannel ? publishEvent(matchIdChannel, 'match:end', basePayload) : Promise.resolve(),
+          tournamentIdChannel ? publishEvent(tournamentIdChannel, 'match:end', basePayload) : Promise.resolve(),
+        ])
       }
     }
 

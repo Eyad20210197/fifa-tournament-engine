@@ -1,4 +1,4 @@
-import { publishEventNonBlocking } from './ably.service.js'
+import { publishEvent } from './ably.service.js'
 import { matchChannel, tournamentChannel } from './channel-names.service.js'
 
 const TIMER_TICK_MS = 250
@@ -39,15 +39,17 @@ function toPayload(timer) {
   }
 }
 
-function publishTimerUpdate(timer) {
+async function publishTimerUpdate(timer) {
   const payload = toPayload(timer)
   const matchCh = matchChannel(payload.matchId)
   const tournamentCh = tournamentChannel(payload.tournamentId)
-  if (matchCh) publishEventNonBlocking(matchCh, 'timer:update', payload)
-  if (tournamentCh) publishEventNonBlocking(tournamentCh, 'timer:update', payload)
+  await Promise.all([
+    matchCh ? publishEvent(matchCh, 'timer:update', payload) : Promise.resolve(),
+    tournamentCh ? publishEvent(tournamentCh, 'timer:update', payload) : Promise.resolve(),
+  ])
 }
 
-function publishTimerClear({ tournamentId, matchId }) {
+async function publishTimerClear({ tournamentId, matchId }) {
   const payload = {
     tournamentId,
     matchId,
@@ -56,8 +58,10 @@ function publishTimerClear({ tournamentId, matchId }) {
   }
   const matchCh = matchChannel(matchId)
   const tournamentCh = tournamentChannel(tournamentId)
-  if (matchCh) publishEventNonBlocking(matchCh, 'timer:clear', payload)
-  if (tournamentCh) publishEventNonBlocking(tournamentCh, 'timer:clear', payload)
+  await Promise.all([
+    matchCh ? publishEvent(matchCh, 'timer:clear', payload) : Promise.resolve(),
+    tournamentCh ? publishEvent(tournamentCh, 'timer:clear', payload) : Promise.resolve(),
+  ])
 }
 
 function clearTimerInterval(timer) {
@@ -68,13 +72,13 @@ function clearTimerInterval(timer) {
 
 function startTimerInterval(timer) {
   clearTimerInterval(timer)
-  timer.intervalId = setInterval(() => {
+  timer.intervalId = setInterval(async () => {
     const remainingMs = getRemainingMs(timer)
     if (remainingMs <= 0) {
-      clearTimer(timer.businessId, timer.tournamentId, timer.matchId)
+      await clearTimer(timer.businessId, timer.tournamentId, timer.matchId)
       return
     }
-    publishTimerUpdate(timer)
+    await publishTimerUpdate(timer)
   }, TIMER_TICK_MS)
   if (typeof timer.intervalId.unref === 'function') timer.intervalId.unref()
 }
@@ -99,7 +103,7 @@ function getOrCreateTimer(businessId, tournamentId, matchId, durationMs) {
   return timer
 }
 
-export function startTimer({ businessId, tournamentId, matchId, durationMs }) {
+export async function startTimer({ businessId, tournamentId, matchId, durationMs }) {
   const timer = getOrCreateTimer(businessId, tournamentId, matchId, durationMs)
   const now = Date.now()
   timer.durationMs = toPositiveNumber(durationMs ?? timer.durationMs, timer.durationMs)
@@ -108,21 +112,21 @@ export function startTimer({ businessId, tournamentId, matchId, durationMs }) {
     timer.pausedAt = null
   }
   startTimerInterval(timer)
-  publishTimerUpdate(timer)
+  await publishTimerUpdate(timer)
   return toPayload(timer)
 }
 
-export function pauseTimer({ businessId, tournamentId, matchId }) {
+export async function pauseTimer({ businessId, tournamentId, matchId }) {
   const key = timerKey(businessId, tournamentId, matchId)
   const timer = timers.get(key)
   if (!timer || timer.pausedAt) return timer ? toPayload(timer) : null
   timer.pausedAt = Date.now()
   clearTimerInterval(timer)
-  publishTimerUpdate(timer)
+  await publishTimerUpdate(timer)
   return toPayload(timer)
 }
 
-export function resumeTimer({ businessId, tournamentId, matchId }) {
+export async function resumeTimer({ businessId, tournamentId, matchId }) {
   const key = timerKey(businessId, tournamentId, matchId)
   const timer = timers.get(key)
   if (!timer || !timer.pausedAt) return timer ? toPayload(timer) : null
@@ -130,33 +134,33 @@ export function resumeTimer({ businessId, tournamentId, matchId }) {
   timer.accumulatedPauseTime += now - timer.pausedAt
   timer.pausedAt = null
   startTimerInterval(timer)
-  publishTimerUpdate(timer)
+  await publishTimerUpdate(timer)
   return toPayload(timer)
 }
 
-export function setTimerDuration({ businessId, tournamentId, matchId, durationMs }) {
+export async function setTimerDuration({ businessId, tournamentId, matchId, durationMs }) {
   const timer = getOrCreateTimer(businessId, tournamentId, matchId, durationMs)
   timer.durationMs = toPositiveNumber(durationMs, timer.durationMs)
-  publishTimerUpdate(timer)
+  await publishTimerUpdate(timer)
   return toPayload(timer)
 }
 
-export function adjustTimer({ businessId, tournamentId, matchId, deltaMs }) {
+export async function adjustTimer({ businessId, tournamentId, matchId, deltaMs }) {
   const key = timerKey(businessId, tournamentId, matchId)
   const timer = timers.get(key)
   if (!timer) return null
   timer.durationMs = Math.max(0, timer.durationMs + Number(deltaMs || 0))
-  publishTimerUpdate(timer)
+  await publishTimerUpdate(timer)
   return toPayload(timer)
 }
 
-export function clearTimer(businessId, tournamentId, matchId) {
+export async function clearTimer(businessId, tournamentId, matchId) {
   const key = timerKey(businessId, tournamentId, matchId)
   const timer = timers.get(key)
   if (!timer) return false
   clearTimerInterval(timer)
   timers.delete(key)
-  publishTimerClear({ tournamentId, matchId })
+  await publishTimerClear({ tournamentId, matchId })
   return true
 }
 

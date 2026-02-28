@@ -36,6 +36,13 @@ function toLocalDateTime(value) {
   return local.toISOString().slice(0, 16)
 }
 
+function toUtcIsoFromLocalDateTime(value) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
 function emptyTeam() {
   return { team_name: '', club_name: '' }
 }
@@ -366,8 +373,9 @@ export default function ScheduleManagementPage() {
     setSaving(true)
     setError('')
     try {
+      const startsAt = toUtcIsoFromLocalDateTime(matchTimes[matchId])
       await updateMatch(Number(selectedTournamentId), Number(matchId), {
-        starts_at: matchTimes[matchId] || null,
+        starts_at: startsAt,
       })
       await loadDetails(selectedTournamentId)
     } catch (e) {
@@ -392,6 +400,7 @@ export default function ScheduleManagementPage() {
         date: bulkSchedule.date,
         start_time: bulkSchedule.start_time,
         interval_minutes: Number(bulkSchedule.interval_minutes || 30),
+        timezone_offset_minutes: new Date().getTimezoneOffset(),
       })
       await loadDetails(selectedTournamentId)
     } catch (e) {

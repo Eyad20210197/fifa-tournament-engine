@@ -17,7 +17,10 @@ ablyRouter.get(
   asyncHandler(async (req, res) => {
     const rawClientId = req.query.clientId
     const clientId = rawClientId == null ? null : String(rawClientId).trim()
-    const options = clientId ? { clientId } : {}
+    const options = {
+      ...(clientId ? { clientId } : {}),
+      capability: { '*': ['*'] },
+    }
     const tokenRequest = await ably.auth.createTokenRequest(options)
     return res.json(tokenRequest)
   }),

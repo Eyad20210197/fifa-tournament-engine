@@ -22,6 +22,13 @@ export function getAblyRealtimeClient() {
     authHeaders: authHeaders(),
     autoConnect: true,
   })
+  realtimeClient.connection.on((change) => {
+    console.debug('[ABLY] Connection state change:', {
+      current: change?.current,
+      previous: change?.previous,
+      reason: change?.reason?.message || null,
+    })
+  })
 
   return realtimeClient
 }

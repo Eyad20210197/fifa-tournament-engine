@@ -1,19 +1,12 @@
-import Ably from 'ably/promises'
+import Ably from 'ably'
 import { env } from '../config/env.js'
 import { logger } from '../utils/logger.js'
 
-let restClient = null
-
-function getAblyRestClient() {
-  if (!restClient) {
-    restClient = new Ably.Rest({ key: env.ablyApiKey })
-  }
-  return restClient
-}
+const ably = new Ably.Rest({ key: env.ablyApiKey })
 
 export async function publishEvent(channelName, eventName, payload) {
   if (!channelName || !eventName) return false
-  const channel = getAblyRestClient().channels.get(channelName)
+  const channel = ably.channels.get(channelName)
   await channel.publish(eventName, payload)
   return true
 }
@@ -23,7 +16,7 @@ export async function generateTokenRequest(clientId) {
   if (!safeClientId) {
     throw new Error('clientId is required')
   }
-  const tokenRequest = await getAblyRestClient().auth.createTokenRequest({
+  const tokenRequest = await ably.auth.createTokenRequest({
     clientId: safeClientId,
     ttl: env.ablyTokenTtlMs,
     capability: JSON.stringify({

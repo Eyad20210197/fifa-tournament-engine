@@ -15,7 +15,7 @@ import { deleteFromCloudinary, uploadBufferToCloudinary, uploadLargeFileToCloudi
 
 const MAX_VIDEO_BYTES = 260 * 1024 * 1024
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const VIDEO_UPLOAD_CHUNK_BYTES = 20 * 1024 * 1024
+const VIDEO_UPLOAD_CHUNK_BYTES = 6000000
 const TEMP_UPLOAD_DIR = path.join(os.tmpdir(), 'ramadan-media-uploads')
 
 const ALLOWED_VIDEO_TYPES = new Set(['opening', 'branding_animated_logo'])

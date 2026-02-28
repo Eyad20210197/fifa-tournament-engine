@@ -24,9 +24,9 @@ export const env = {
   cloudinaryCloudName: String(process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
   cloudinaryApiKey: String(process.env.CLOUDINARY_API_KEY || '').trim(),
   cloudinaryApiSecret: String(process.env.CLOUDINARY_API_SECRET || '').trim(),
-  cloudinaryFolderVideo: String(process.env.CLOUDINARY_FOLDER_VIDEO || 'tournament/opening').trim(),
-  cloudinaryFolderSponsor: String(process.env.CLOUDINARY_FOLDER_SPONSOR || 'tournament/sponsors').trim(),
-  cloudinaryFolderBranding: String(process.env.CLOUDINARY_FOLDER_BRANDING || 'tournament/branding').trim(),
+  cloudinaryFolderVideo: String(process.env.CLOUDINARY_FOLDER_VIDEO || 'opening').trim(),
+  cloudinaryFolderSponsor: String(process.env.CLOUDINARY_FOLDER_SPONSOR || 'sponsors').trim(),
+  cloudinaryFolderBranding: String(process.env.CLOUDINARY_FOLDER_BRANDING || 'branding').trim(),
 }
 
 if (!env.databaseUrl) {

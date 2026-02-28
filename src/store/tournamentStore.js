@@ -13,6 +13,34 @@ import {
 
 const DEFAULT_TIMER_DURATION_MS = 10 * 60 * 1000
 
+function nowMs() {
+  return Date.now()
+}
+
+function getEffectiveRemainingMs(timer, atMs = nowMs()) {
+  if (!timer) return 0
+  const baseRemaining = Math.max(0, Number(timer.remainingMs ?? 0))
+  const status = String(timer.status || 'paused')
+  if (status !== 'running') return baseRemaining
+  const syncedAt = Number(timer.syncedAt ?? atMs)
+  const elapsed = Math.max(0, atMs - syncedAt)
+  return Math.max(0, baseRemaining - elapsed)
+}
+
+function normalizeTimerState(value, atMs = nowMs()) {
+  const durationMs = Math.max(1, Number(value?.durationMs ?? DEFAULT_TIMER_DURATION_MS))
+  const remainingRaw = Math.max(0, Number(value?.remainingMs ?? durationMs))
+  const status = ['running', 'paused', 'finished'].includes(String(value?.status)) ? String(value.status) : 'paused'
+  const syncedAt = Number(value?.syncedAt ?? atMs)
+  const remainingMs = status === 'running' ? Math.max(0, remainingRaw) : remainingRaw
+  return {
+    durationMs,
+    remainingMs: status === 'finished' ? 0 : remainingMs,
+    status: status === 'finished' || remainingMs <= 0 ? 'finished' : status,
+    syncedAt,
+  }
+}
+
 function persistedSlice(state) {
   const { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState, matchTimers } = state
   return { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState, matchTimers }
@@ -31,14 +59,11 @@ function normalizeSponsor(sponsorInput) {
 function normalizeMatchTimers(input) {
   if (!input || typeof input !== 'object') return {}
   const output = {}
+  const ts = nowMs()
   for (const [rawMatchId, value] of Object.entries(input)) {
     const matchId = Number(rawMatchId)
     if (!Number.isFinite(matchId) || matchId <= 0 || !value || typeof value !== 'object') continue
-    output[matchId] = {
-      remainingMs: Math.max(0, Number(value.remainingMs ?? DEFAULT_TIMER_DURATION_MS)),
-      durationMs: Math.max(1, Number(value.durationMs ?? DEFAULT_TIMER_DURATION_MS)),
-      status: ['running', 'paused', 'finished'].includes(String(value.status)) ? String(value.status) : 'paused',
-    }
+    output[matchId] = normalizeTimerState(value, ts)
   }
   return output
 }
@@ -102,7 +127,6 @@ function statusForRemaining(remainingMs, statusHint) {
 export const useTournamentStore = create((set, get) => {
   let isApplyingRemote = false
   let commitQueue = Promise.resolve()
-  let localTimerIntervalId = null
 
   async function commit(nextState) {
     const snapshot = persistedSlice(nextState)
@@ -141,13 +165,16 @@ export const useTournamentStore = create((set, get) => {
   function updateMatchTimerLocal(matchId, patch) {
     const id = Number(matchId)
     if (!Number.isFinite(id) || id <= 0) return
+    const ts = nowMs()
     set((state) => {
-      const current = state.matchTimers[id] || {
+      const current = normalizeTimerState(state.matchTimers[id] || {
         remainingMs: DEFAULT_TIMER_DURATION_MS,
         durationMs: DEFAULT_TIMER_DURATION_MS,
         status: 'paused',
-      }
-      const next = { ...current, ...patch }
+        syncedAt: ts,
+      }, ts)
+      const merged = { ...current, ...patch, syncedAt: patch?.syncedAt ?? ts }
+      const next = normalizeTimerState(merged, ts)
       return {
         ...state,
         matchTimers: {
@@ -157,40 +184,6 @@ export const useTournamentStore = create((set, get) => {
       }
     })
   }
-
-  function ensureLocalTimerTicker() {
-    if (localTimerIntervalId) return
-    localTimerIntervalId = setInterval(() => {
-      set((state) => {
-        const timerEntries = Object.entries(state.matchTimers || {})
-        if (!timerEntries.length) return state
-
-        let changed = false
-        const nextTimers = { ...state.matchTimers }
-        for (const [rawMatchId, timer] of timerEntries) {
-          if (!timer || timer.status !== 'running') continue
-          const currentRemaining = Math.max(0, Number(timer.remainingMs ?? 0))
-          if (!Number.isFinite(currentRemaining) || currentRemaining <= 0) {
-            nextTimers[rawMatchId] = { ...timer, remainingMs: 0, status: 'finished' }
-            changed = true
-            continue
-          }
-          const nextRemaining = Math.max(0, currentRemaining - 1000)
-          nextTimers[rawMatchId] = {
-            ...timer,
-            remainingMs: nextRemaining,
-            status: nextRemaining <= 0 ? 'finished' : 'running',
-          }
-          changed = true
-        }
-
-        if (!changed) return state
-        return { ...state, matchTimers: nextTimers }
-      })
-    }, 1000)
-  }
-
-  ensureLocalTimerTicker()
 
   return {
     ...defaultState(),
@@ -225,23 +218,29 @@ export const useTournamentStore = create((set, get) => {
     applyMatchTimerUpdate: ({ matchId, remainingMs, status, durationMs }) => {
       const id = Number(matchId)
       if (!Number.isFinite(id) || id <= 0) return
+      const ts = nowMs()
       set((state) => {
-        const current = state.matchTimers[id] || {
+        const current = normalizeTimerState(state.matchTimers[id] || {
           remainingMs: DEFAULT_TIMER_DURATION_MS,
           durationMs: DEFAULT_TIMER_DURATION_MS,
           status: 'paused',
-        }
-        const nextRemaining = Math.max(0, Number(remainingMs ?? current.remainingMs))
-        const nextDuration = Math.max(1, Number(durationMs ?? current.durationMs))
+          syncedAt: ts,
+        }, ts)
+        const next = normalizeTimerState(
+          {
+            ...current,
+            remainingMs: Math.max(0, Number(remainingMs ?? getEffectiveRemainingMs(current, ts))),
+            durationMs: Math.max(1, Number(durationMs ?? current.durationMs)),
+            status: statusForRemaining(remainingMs ?? current.remainingMs, status || current.status),
+            syncedAt: ts,
+          },
+          ts,
+        )
         return {
           ...state,
           matchTimers: {
             ...state.matchTimers,
-            [id]: {
-              remainingMs: nextRemaining,
-              durationMs: nextDuration,
-              status: statusForRemaining(nextRemaining, status || current.status),
-            },
+            [id]: next,
           },
         }
       })
@@ -477,7 +476,7 @@ export const useTournamentStore = create((set, get) => {
       if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
       const current = get().matchTimers[scopedMatchId]
       const durationMs = Math.max(1, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS))
-      const currentRemaining = Math.max(0, Number(current?.remainingMs ?? durationMs))
+      const currentRemaining = Math.max(0, getEffectiveRemainingMs(current))
       const remainingMs = currentRemaining > 0 ? currentRemaining : durationMs
       updateMatchTimerLocal(scopedMatchId, { durationMs, remainingMs, status: 'running' })
       void startMatchTimer({ tournamentId, matchId: scopedMatchId, durationMs }).catch(() => null)
@@ -488,7 +487,9 @@ export const useTournamentStore = create((set, get) => {
       if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
       if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
-      updateMatchTimerLocal(scopedMatchId, { status: 'paused' })
+      const current = get().matchTimers[scopedMatchId]
+      const remainingMs = Math.max(0, getEffectiveRemainingMs(current))
+      updateMatchTimerLocal(scopedMatchId, { remainingMs, status: 'paused' })
       void pauseMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
@@ -497,7 +498,9 @@ export const useTournamentStore = create((set, get) => {
       if (!scopedMatchId) throw new Error('اختر مباراة أولا')
       const tournamentId = getActiveTournamentId()
       if (!tournamentId) throw new Error('لا يوجد Tournament ID صالح')
-      updateMatchTimerLocal(scopedMatchId, { status: 'running' })
+      const current = get().matchTimers[scopedMatchId]
+      const remainingMs = Math.max(0, getEffectiveRemainingMs(current))
+      updateMatchTimerLocal(scopedMatchId, { remainingMs, status: 'running' })
       void resumeMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
@@ -523,9 +526,10 @@ export const useTournamentStore = create((set, get) => {
       if (!Number.isFinite(deltaMs) || deltaMs === 0) return
       const current = get().matchTimers[scopedMatchId]
       const nextDuration = Math.max(0, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS) + deltaMs)
+      const liveRemaining = Math.max(0, getEffectiveRemainingMs(current))
       updateMatchTimerLocal(scopedMatchId, {
         durationMs: nextDuration,
-        remainingMs: Math.max(0, Number(current?.remainingMs ?? nextDuration) + deltaMs),
+        remainingMs: Math.max(0, liveRemaining + deltaMs),
       })
       void adjustMatchTimer({ tournamentId, matchId: scopedMatchId, deltaMs }).catch(() => null)
     },

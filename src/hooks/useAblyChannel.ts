@@ -19,10 +19,7 @@ export function useAblyChannel(channelName: string | null | undefined, eventName
       callback(message?.data, message)
     }
 
-    console.debug('[ABLY] Subscribing to channel/event:', {
-      channel: channelName,
-      event: eventName,
-    })
+    console.log('[ABLY SUBSCRIBE]', channelName, eventName)
     channel.subscribe(eventName, handler)
 
     return () => {

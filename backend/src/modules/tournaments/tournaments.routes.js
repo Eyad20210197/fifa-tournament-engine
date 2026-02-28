@@ -681,6 +681,9 @@ tournamentsRouter.patch(
       status: String(updatedMatch.status || ''),
       updatedAt,
     }
+    if (matchIdChannel) {
+      await publishEvent(matchIdChannel, 'match:update', basePayload)
+    }
     const previousHome = Number(previousMatch.home_score || 0)
     const previousAway = Number(previousMatch.away_score || 0)
     const previousStatus = String(previousMatch.status || '')

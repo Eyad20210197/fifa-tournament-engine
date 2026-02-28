@@ -23,6 +23,9 @@ export default function AblyTestPanel() {
   useAblyChannel(matchChannelName, 'score:update', (data) => {
     pushMessage({ scope: 'match', event: 'score:update', data, at: new Date().toISOString() })
   })
+  useAblyChannel(matchChannelName, 'match:update', (data) => {
+    pushMessage({ scope: 'match', event: 'match:update', data, at: new Date().toISOString() })
+  })
 
   async function sendMock() {
     if (!tournamentId || !matchId) return

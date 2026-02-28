@@ -6,6 +6,7 @@ const ably = new Ably.Rest({ key: env.ablyApiKey })
 
 export async function publishEvent(channelName, eventName, payload) {
   if (!channelName || !eventName) return false
+  console.log('[ABLY PUBLISH]', channelName, eventName)
   logger.info('[ABLY] Publishing ->', channelName, eventName, payload)
   const channel = ably.channels.get(channelName)
   await channel.publish(eventName, payload)

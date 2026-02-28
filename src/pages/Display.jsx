@@ -139,7 +139,7 @@ export default function Display() {
     }
   })
 
-  useAblyChannel(matchChannel(liveMatchId), 'score:update', (data) => {
+  const applyMatchScoreUpdate = (data) => {
     const matchId = Number(data?.matchId)
     if (!Number.isFinite(matchId) || matchId <= 0) return
     useTournamentStore.setState((state) => ({
@@ -155,7 +155,10 @@ export default function Display() {
           : match,
       ),
     }))
-  })
+  }
+
+  useAblyChannel(matchChannel(liveMatchId), 'score:update', applyMatchScoreUpdate)
+  useAblyChannel(matchChannel(liveMatchId), 'match:update', applyMatchScoreUpdate)
 
   return (
     <RamadanStage variant="display">

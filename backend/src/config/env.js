@@ -18,6 +18,8 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   corsAllowAllOrigins: parseBoolean(process.env.CORS_ALLOW_ALL_ORIGINS, true),
+  ablyApiKey: String(process.env.ABLY_API_KEY || '').trim(),
+  ablyTokenTtlMs: Number(process.env.ABLY_TOKEN_TTL_MS || 60 * 60 * 1000),
   mediaVideosDir: String(process.env.MEDIA_VIDEOS_DIR || '/var/www/tournament/media/videos').trim(),
 }
 
@@ -38,4 +40,8 @@ if (!env.jwtSecret) {
 
 if (!env.baseUrl && env.nodeEnv === 'production') {
   throw new Error('BASE_URL is required in production')
+}
+
+if (!env.ablyApiKey) {
+  throw new Error('ABLY_API_KEY is required')
 }

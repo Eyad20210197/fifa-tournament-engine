@@ -4,7 +4,7 @@ import process from 'node:process'
 import { app } from './app.js'
 import { env } from './config/env.js'
 import { logger } from './utils/logger.js'
-import { setupLiveStateWebSocket } from './ws/liveStateHub.js'
+import { getLiveTimerStats, stopAllTimers } from './services/live-timer.service.js'
 
 app.get('/', (req, res) => {
   return res.status(200).json({
@@ -16,12 +16,11 @@ app.get('/', (req, res) => {
 })
 
 const httpServer = createServer(app)
-const liveStateHub = setupLiveStateWebSocket(httpServer)
 
 app.get('/health', (req, res) => {
   return res.status(200).json({
     status: 'ok',
-    websocketClients: liveStateHub.getClientCount(),
+    ...getLiveTimerStats(),
   })
 })
 
@@ -91,7 +90,7 @@ const shutdown = (signal) => {
   clearListenRetryTimer()
   logger.warn(`Received ${signal}. Shutting down gracefully...`)
 
-  liveStateHub.close()
+  stopAllTimers()
   httpServer.close(() => {
     logger.info('HTTP server closed.')
     process.exit(0)

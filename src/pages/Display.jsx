@@ -7,15 +7,12 @@ import { LiveMatchScreen } from '../components/live/LiveMatchScreen'
 import { StandingsTable } from '../components/standings/StandingsTable'
 import { BracketView } from '../components/bracket/BracketView'
 import { ScheduleList } from '../components/schedule/ScheduleList'
-import {
-  acquireLiveStateSocket,
-  releaseLiveStateSocket,
-  subscribeLiveState,
-  subscribeLiveStateConnectionStatus,
-} from '../services/liveStateSocket'
 import { fetchCurrentLiveState } from '../services/liveStateService'
 import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
 import { useAuth } from '../auth/useAuth'
+import { useAblyChannel } from '../hooks/useAblyChannel'
+import { matchChannel, tournamentChannel } from '../services/channelNames'
+import { subscribeAblyConnectionStatus } from '../services/ablyRealtime'
 
 const labels = {
   opening: 'الافتتاح',
@@ -31,6 +28,7 @@ function mapDetailsToDisplayState(details) {
 
   return {
     tournament: {
+      id: details?.id ? Number(details.id) : null,
       name: details?.name || 'Tournament',
       format,
     },
@@ -63,6 +61,8 @@ function mapDetailsToDisplayState(details) {
 export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
   const tournament = useTournamentStore((s) => s.tournament)
+  const tournamentId = useTournamentStore((s) => s.tournament.id)
+  const liveMatchId = useTournamentStore((s) => s.liveMatchState.matchId)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
   const { branding } = useAuth()
   const [connectionStatus, setConnectionStatus] = useState('connecting')
@@ -109,32 +109,53 @@ export default function Display() {
         }))
       })
 
-    acquireLiveStateSocket()
-    const unsubscribe = subscribeLiveState((message) => {
-      if (message?.type === 'STATE_UPDATED' && message.payload) {
-        useTournamentStore.getState().applyRemoteState(message.payload)
-        return
-      }
-      if (message?.type === 'MATCH_TIMER_UPDATED' && message.payload) {
-        useTournamentStore.getState().applyMatchTimerUpdate(message.payload)
-        return
-      }
-      if (message?.type === 'MATCH_TIMER_CLEARED' && message.payload?.matchId != null) {
-        useTournamentStore.getState().clearMatchTimerLocal(message.payload.matchId)
-      }
-    })
-    const unsubscribeStatus = subscribeLiveStateConnectionStatus((status) => {
+    const unsubscribeStatus = subscribeAblyConnectionStatus((status) => {
       setConnectionStatus(status)
     })
 
     return () => {
-      unsubscribe()
       unsubscribeStatus()
-      releaseLiveStateSocket()
       htmlStyle.overflow = prevHtmlOverflow
       bodyStyle.overflow = prevBodyOverflow
     }
   }, [])
+
+  useAblyChannel(tournamentChannel(tournamentId), 'state:update', (data) => {
+    const snapshot = data?.snapshot || data?.payload || data
+    if (snapshot && typeof snapshot === 'object') {
+      useTournamentStore.getState().applyRemoteState(snapshot)
+    }
+  })
+
+  useAblyChannel(tournamentChannel(tournamentId), 'timer:update', (data) => {
+    if (data?.matchId != null) {
+      useTournamentStore.getState().applyMatchTimerUpdate(data)
+    }
+  })
+
+  useAblyChannel(tournamentChannel(tournamentId), 'timer:clear', (data) => {
+    if (data?.matchId != null) {
+      useTournamentStore.getState().clearMatchTimerLocal(data.matchId)
+    }
+  })
+
+  useAblyChannel(matchChannel(liveMatchId), 'score:update', (data) => {
+    const matchId = Number(data?.matchId)
+    if (!Number.isFinite(matchId) || matchId <= 0) return
+    useTournamentStore.setState((state) => ({
+      ...state,
+      matches: state.matches.map((match) =>
+        Number(match.id) === matchId
+          ? {
+              ...match,
+              homeScore: Number(data?.homeScore ?? match.homeScore ?? 0),
+              awayScore: Number(data?.awayScore ?? match.awayScore ?? 0),
+              status: data?.status || match.status,
+            }
+          : match,
+      ),
+    }))
+  })
 
   return (
     <RamadanStage variant="display">
@@ -150,7 +171,7 @@ export default function Display() {
                 {labels[activeScreen] || 'عرض مباشر'}
               </span>
               <span className="rounded-full border border-white/20 bg-black/25 px-3 py-1 text-[clamp(0.7rem,0.9vw,0.95rem)] text-white/90">
-                WS: {connectionStatus}
+                Realtime: {connectionStatus}
               </span>
             </div>
           </div>

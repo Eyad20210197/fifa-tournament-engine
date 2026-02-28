@@ -1,8 +1,15 @@
 import { create } from 'zustand'
 import { generateTournamentData } from '../utils/tournament/generate'
 import { computeStandings } from '../utils/tournament/standings'
-import { publishLiveState, wsAdjustMatchTimer, wsClearMatchTimer, wsPauseMatchTimer, wsResumeMatchTimer, wsSetMatchTimerDuration, wsStartMatchTimer } from '../services/liveStateSocket'
-import { saveCurrentLiveState } from '../services/liveStateService'
+import {
+  adjustMatchTimer,
+  clearMatchTimer,
+  pauseMatchTimer,
+  resumeMatchTimer,
+  saveCurrentLiveState,
+  setMatchTimerDuration,
+  startMatchTimer,
+} from '../services/liveStateService'
 
 const DEFAULT_TIMER_DURATION_MS = 10 * 60 * 1000
 
@@ -56,6 +63,7 @@ function mergedCollections(currentState, payload) {
 
 function defaultTournament() {
   return {
+    id: null,
     name: 'بطولة رمضان 2026',
     format: 'دوري',
   }
@@ -95,27 +103,24 @@ export const useTournamentStore = create((set, get) => {
   let isApplyingRemote = false
   let commitQueue = Promise.resolve()
 
-  async function commit(nextState, { broadcast = true } = {}) {
+  async function commit(nextState) {
     const snapshot = persistedSlice(nextState)
 
     commitQueue = commitQueue
       .then(async () => {
         await saveCurrentLiveState(snapshot).catch(() => null)
         set((s) => ({ _meta: { ...s._meta, lastSavedAt: Date.now() } }))
-        if (broadcast && !isApplyingRemote) {
-          publishLiveState(snapshot)
-        }
       })
       .catch((err) => {
         console.error('Failed to persist live snapshot:', err)
       })
   }
 
-  function setState(mutator, { broadcast = true } = {}) {
+  function setState(mutator) {
     set((state) => {
       const next = typeof mutator === 'function' ? mutator(state) : { ...state, ...mutator }
       queueMicrotask(() => {
-        void commit(get(), { broadcast })
+        void commit(get())
       })
       return next
     })
@@ -125,6 +130,11 @@ export const useTournamentStore = create((set, get) => {
     if (Number.isFinite(Number(matchId)) && Number(matchId) > 0) return Number(matchId)
     const selected = Number(get().liveMatchState.matchId)
     return Number.isFinite(selected) && selected > 0 ? selected : null
+  }
+
+  function getActiveTournamentId() {
+    const id = Number(get().tournament?.id)
+    return Number.isFinite(id) && id > 0 ? id : null
   }
 
   function updateMatchTimerLocal(matchId, patch) {
@@ -410,52 +420,64 @@ export const useTournamentStore = create((set, get) => {
     setTimerDurationMinutes: (minutes, matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       const durationMs = Math.max(1, Number(minutes) || 10) * 60 * 1000
       updateMatchTimerLocal(scopedMatchId, {
         durationMs,
         remainingMs: durationMs,
         status: 'paused',
       })
-      wsSetMatchTimerDuration(scopedMatchId, durationMs)
+      void setMatchTimerDuration({ tournamentId, matchId: scopedMatchId, durationMs }).catch(() => null)
     },
 
     startTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       const current = get().matchTimers[scopedMatchId]
       const durationMs = Math.max(1, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS))
       updateMatchTimerLocal(scopedMatchId, { durationMs, status: 'running' })
-      wsStartMatchTimer(scopedMatchId, durationMs)
+      void startMatchTimer({ tournamentId, matchId: scopedMatchId, durationMs }).catch(() => null)
     },
 
     pauseTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       updateMatchTimerLocal(scopedMatchId, { status: 'paused' })
-      wsPauseMatchTimer(scopedMatchId)
+      void pauseMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     resumeTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       updateMatchTimerLocal(scopedMatchId, { status: 'running' })
-      wsResumeMatchTimer(scopedMatchId)
+      void resumeMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     resetTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       set((state) => {
         const next = { ...state.matchTimers }
         delete next[scopedMatchId]
         return { ...state, matchTimers: next }
       })
-      wsClearMatchTimer(scopedMatchId)
+      void clearMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     adjustTimerSeconds: (deltaSeconds, matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       const deltaMs = (Number(deltaSeconds) || 0) * 1000
       if (!Number.isFinite(deltaMs) || deltaMs === 0) return
       const current = get().matchTimers[scopedMatchId]
@@ -464,18 +486,20 @@ export const useTournamentStore = create((set, get) => {
         durationMs: nextDuration,
         remainingMs: Math.max(0, Number(current?.remainingMs ?? nextDuration) + deltaMs),
       })
-      wsAdjustMatchTimer(scopedMatchId, deltaMs)
+      void adjustMatchTimer({ tournamentId, matchId: scopedMatchId, deltaMs }).catch(() => null)
     },
 
     clearMatchTimer: (matchId) => {
       const scopedMatchId = getScopedMatchId(matchId)
       if (!scopedMatchId) return
+      const tournamentId = getActiveTournamentId()
+      if (!tournamentId) return
       set((state) => {
         const next = { ...state.matchTimers }
         delete next[scopedMatchId]
         return { ...state, matchTimers: next }
       })
-      wsClearMatchTimer(scopedMatchId)
+      void clearMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
     setActiveScreen: (screen) => setState({ activeScreen: screen }),
@@ -512,7 +536,7 @@ export const useTournamentStore = create((set, get) => {
       isApplyingRemote = true
       try {
         set(() => ({ ...defaultState(), ...normalizedData, _meta: { ...get()._meta, hydrated: true } }))
-        await commit({ ...get(), ...normalizedData }, { broadcast: true })
+        await commit({ ...get(), ...normalizedData })
       } finally {
         isApplyingRemote = false
       }
@@ -521,7 +545,10 @@ export const useTournamentStore = create((set, get) => {
     resetAll: async () => {
       const initial = defaultState()
       set(() => initial)
-      await commit(initial, { broadcast: true })
+      await commit(initial)
     },
   }
 })
+
+
+

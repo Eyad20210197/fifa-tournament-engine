@@ -9,24 +9,16 @@ function normalizeApiBaseUrl(raw) {
   return `${trimmed}/api`
 }
 
-function normalizeWsUrl(raw) {
-  const trimmed = stripTrailingSlash(raw)
-  if (!trimmed) return ''
+export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
 
-  if (trimmed.startsWith('ws://') || trimmed.startsWith('wss://')) {
-    return trimmed
-  }
-
-  if (trimmed.startsWith('http://')) {
-    return `ws://${trimmed.slice('http://'.length)}`
-  }
-
-  if (trimmed.startsWith('https://')) {
-    return `wss://${trimmed.slice('https://'.length)}`
-  }
-
+function toApiOrigin(apiBaseUrl) {
+  const trimmed = stripTrailingSlash(apiBaseUrl)
+  if (!trimmed || trimmed.startsWith('/')) return ''
+  if (trimmed.endsWith('/api')) return trimmed.slice(0, -4)
   return trimmed
 }
 
-export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
-export const WS_URL = normalizeWsUrl(import.meta.env.VITE_WS_URL)
+const API_ORIGIN = toApiOrigin(API_BASE_URL)
+
+export const ABLY_AUTH_URL = API_ORIGIN ? `${API_ORIGIN}/api/ably/token` : '/api/ably/token'
+export const ABLY_CLIENT_ID = String(import.meta.env.VITE_ABLY_CLIENT_ID || import.meta.env.NEXT_PUBLIC_ABLY_CLIENT_ID || '').trim()

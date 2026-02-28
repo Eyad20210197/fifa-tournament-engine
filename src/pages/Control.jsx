@@ -8,7 +8,8 @@ import { TournamentGenerator } from '../components/common/TournamentGenerator'
 import { SponsorManager } from '../components/common/SponsorManager'
 import { MatchControl } from '../components/common/MatchControl'
 import { VideoManager } from '../components/common/VideoManager'
-import { acquireLiveStateSocket, releaseLiveStateSocket, subscribeLiveState } from '../services/liveStateSocket'
+import { useAblyChannel } from '../hooks/useAblyChannel'
+import { tournamentChannel } from '../services/channelNames'
 import { fetchCurrentLiveState } from '../services/liveStateService'
 import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
 import { useAuth } from '../auth/useAuth'
@@ -20,6 +21,7 @@ function mapDetailsToControlState(details) {
 
   return {
     tournament: {
+      id: details?.id ? Number(details.id) : null,
       name: details?.name || 'Tournament',
       format,
     },
@@ -54,6 +56,7 @@ export default function Control() {
   const isAdmin = role === ROLES.ADMIN
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
   const tournamentName = useTournamentStore((s) => s.tournament.name)
+  const tournamentId = useTournamentStore((s) => s.tournament.id)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
   const setActiveScreen = useTournamentStore((s) => s.setActiveScreen)
   const exportJSON = useTournamentStore((s) => s.exportJSON)
@@ -93,28 +96,30 @@ export default function Control() {
         }
       }
 
-      acquireLiveStateSocket()
     }
 
     void bootstrapControl()
-    const unsubscribe = subscribeLiveState((message) => {
-      if (message?.type === 'STATE_UPDATED' && message.payload) {
-        useTournamentStore.getState().applyRemoteState(message.payload)
-        return
-      }
-      if (message?.type === 'MATCH_TIMER_UPDATED' && message.payload) {
-        useTournamentStore.getState().applyMatchTimerUpdate(message.payload)
-        return
-      }
-      if (message?.type === 'MATCH_TIMER_CLEARED' && message.payload?.matchId != null) {
-        useTournamentStore.getState().clearMatchTimerLocal(message.payload.matchId)
-      }
-    })
-    return () => {
-      unsubscribe()
-      releaseLiveStateSocket()
-    }
+    return undefined
   }, [])
+
+  useAblyChannel(tournamentChannel(tournamentId), 'state:update', (data) => {
+    const snapshot = data?.snapshot || data?.payload || data
+    if (snapshot && typeof snapshot === 'object') {
+      useTournamentStore.getState().applyRemoteState(snapshot)
+    }
+  })
+
+  useAblyChannel(tournamentChannel(tournamentId), 'timer:update', (data) => {
+    if (data?.matchId != null) {
+      useTournamentStore.getState().applyMatchTimerUpdate(data)
+    }
+  })
+
+  useAblyChannel(tournamentChannel(tournamentId), 'timer:clear', (data) => {
+    if (data?.matchId != null) {
+      useTournamentStore.getState().clearMatchTimerLocal(data.matchId)
+    }
+  })
 
   const screens = useMemo(
     () => [

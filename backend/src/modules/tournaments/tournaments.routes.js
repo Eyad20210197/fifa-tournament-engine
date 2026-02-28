@@ -6,6 +6,8 @@ import { authenticate } from '../../middleware/authenticate.js'
 import { authorize } from '../../middleware/authorize.js'
 import { requireSubscription } from '../../middleware/requireSubscription.js'
 import { HttpError } from '../../utils/httpError.js'
+import { publishEventNonBlocking } from '../../services/ably.service.js'
+import { matchChannel, tournamentChannel } from '../../services/channel-names.service.js'
 
 export const tournamentsRouter = Router()
 const FORMAT_LEAGUE = '\u062f\u0648\u0631\u064a'
@@ -620,6 +622,17 @@ tournamentsRouter.patch(
 
     const payload = parsed.data
     if (Object.keys(payload).length === 0) throw new HttpError(400, 'No fields to update')
+    const previous = await query(
+      `SELECT id, home_score, away_score, status
+       FROM tournament_matches
+       WHERE id = $1
+         AND tournament_id = $2
+         AND business_id = $3
+       LIMIT 1`,
+      [matchId, tournamentId, req.user.business_id],
+    )
+    const previousMatch = previous.rows[0]
+    if (!previousMatch) throw new HttpError(404, 'Match not found')
 
     const result = await query(
       `UPDATE tournament_matches
@@ -642,7 +655,40 @@ tournamentsRouter.patch(
         req.user.business_id,
       ],
     )
-    if (!result.rows[0]) throw new HttpError(404, 'Match not found')
-    return res.json({ success: true, data: result.rows[0] })
+    const updatedMatch = result.rows[0]
+    if (!updatedMatch) throw new HttpError(404, 'Match not found')
+
+    const updatedAt = new Date().toISOString()
+    const matchIdChannel = matchChannel(matchId)
+    const tournamentIdChannel = tournamentChannel(tournamentId)
+    const basePayload = {
+      tournamentId,
+      matchId,
+      homeScore: Number(updatedMatch.home_score || 0),
+      awayScore: Number(updatedMatch.away_score || 0),
+      status: String(updatedMatch.status || ''),
+      updatedAt,
+    }
+    const previousHome = Number(previousMatch.home_score || 0)
+    const previousAway = Number(previousMatch.away_score || 0)
+    const previousStatus = String(previousMatch.status || '')
+    const nextStatus = String(updatedMatch.status || '')
+
+    if (previousHome !== basePayload.homeScore || previousAway !== basePayload.awayScore) {
+      if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'score:update', basePayload)
+      if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'score:update', basePayload)
+    }
+    if (previousStatus !== nextStatus) {
+      if (previousStatus !== 'live' && nextStatus === 'live') {
+        if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'match:start', basePayload)
+        if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'match:start', basePayload)
+      }
+      if (previousStatus !== 'finished' && nextStatus === 'finished') {
+        if (matchIdChannel) publishEventNonBlocking(matchIdChannel, 'match:end', basePayload)
+        if (tournamentIdChannel) publishEventNonBlocking(tournamentIdChannel, 'match:end', basePayload)
+      }
+    }
+
+    return res.json({ success: true, data: updatedMatch })
   }),
 )

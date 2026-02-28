@@ -1,11 +1,21 @@
 import { apiClient } from './apiClient'
 
+function withUploadProgress(onProgress) {
+  if (typeof onProgress !== 'function') return undefined
+  return (event) => {
+    const total = Number(event?.total || 0)
+    if (!total) return
+    const percent = Math.max(0, Math.min(100, Math.round((Number(event.loaded || 0) / total) * 100)))
+    onProgress(percent, event)
+  }
+}
+
 export async function fetchOpeningVideo() {
   const response = await apiClient.get('/media/opening')
   return response.data?.data || null
 }
 
-export async function uploadOpeningVideo(file) {
+export async function uploadOpeningVideo(file, { onProgress } = {}) {
   const body = new FormData()
   body.append('video', file)
   body.append('type', 'opening')
@@ -13,6 +23,7 @@ export async function uploadOpeningVideo(file) {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    onUploadProgress: withUploadProgress(onProgress),
   })
   return response.data?.data || null
 }
@@ -22,7 +33,7 @@ export async function deleteOpeningVideo() {
   return response.data?.data || null
 }
 
-export async function uploadSponsorLogo(file) {
+export async function uploadSponsorLogo(file, { onProgress } = {}) {
   const body = new FormData()
   body.append('image', file)
   body.append('type', 'sponsor')
@@ -30,11 +41,12 @@ export async function uploadSponsorLogo(file) {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    onUploadProgress: withUploadProgress(onProgress),
   })
   return response.data?.data || null
 }
 
-export async function uploadBrandingLogo(file) {
+export async function uploadBrandingLogo(file, { onProgress } = {}) {
   const body = new FormData()
   body.append('image', file)
   body.append('type', 'branding_logo')
@@ -42,11 +54,12 @@ export async function uploadBrandingLogo(file) {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    onUploadProgress: withUploadProgress(onProgress),
   })
   return response.data?.data || null
 }
 
-export async function uploadBrandingAnimatedLogo(file) {
+export async function uploadBrandingAnimatedLogo(file, { onProgress } = {}) {
   const body = new FormData()
   body.append('video', file)
   body.append('type', 'branding_animated_logo')
@@ -54,6 +67,7 @@ export async function uploadBrandingAnimatedLogo(file) {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    onUploadProgress: withUploadProgress(onProgress),
   })
   return response.data?.data || null
 }

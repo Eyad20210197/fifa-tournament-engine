@@ -16,6 +16,9 @@ app.get('/', (req, res) => {
 })
 
 const httpServer = createServer(app)
+httpServer.requestTimeout = 10 * 60 * 1000
+httpServer.headersTimeout = 11 * 60 * 1000
+httpServer.keepAliveTimeout = 75 * 1000
 
 app.get('/health', (req, res) => {
   return res.status(200).json({

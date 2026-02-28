@@ -35,6 +35,9 @@ export default function BrandingPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingAnimated, setUploadingAnimated] = useState(false)
   const [uploadingOpening, setUploadingOpening] = useState(false)
+  const [logoProgress, setLogoProgress] = useState(0)
+  const [animatedProgress, setAnimatedProgress] = useState(0)
+  const [openingProgress, setOpeningProgress] = useState(0)
   const [deletingAnimated, setDeletingAnimated] = useState(false)
   const [deletingOpening, setDeletingOpening] = useState(false)
 
@@ -88,10 +91,13 @@ export default function BrandingPage() {
   async function onUploadLogo(file) {
     if (!file) return
     setUploadingLogo(true)
+    setLogoProgress(0)
     setError('')
     setMessage('')
     try {
-      const result = await uploadBrandingLogo(file)
+      const result = await uploadBrandingLogo(file, {
+        onProgress: (percent) => setLogoProgress(percent),
+      })
       const url = String(result?.url || '').trim()
       if (!url) throw new Error('Missing uploaded logo URL')
       setForm((state) => ({ ...state, logo_url: url }))
@@ -100,6 +106,7 @@ export default function BrandingPage() {
       setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload logo')
     } finally {
       setUploadingLogo(false)
+      setLogoProgress(0)
       if (logoRef.current) logoRef.current.value = ''
     }
   }
@@ -112,10 +119,13 @@ export default function BrandingPage() {
     }
 
     setUploadingAnimated(true)
+    setAnimatedProgress(0)
     setError('')
     setMessage('')
     try {
-      const result = await uploadBrandingAnimatedLogo(file)
+      const result = await uploadBrandingAnimatedLogo(file, {
+        onProgress: (percent) => setAnimatedProgress(percent),
+      })
       setAnimatedVideo(result?.path ? result : null)
       setForm((state) => ({ ...state, animated_logo_url: String(result?.path || '').trim() }))
       setMessage('Animated Logo (Desktop Top Bar Only) updated successfully.')
@@ -123,6 +133,7 @@ export default function BrandingPage() {
       setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload animated logo')
     } finally {
       setUploadingAnimated(false)
+      setAnimatedProgress(0)
       if (animatedRef.current) animatedRef.current.value = ''
     }
   }
@@ -152,16 +163,20 @@ export default function BrandingPage() {
     }
 
     setUploadingOpening(true)
+    setOpeningProgress(0)
     setError('')
     setMessage('')
     try {
-      const result = await uploadOpeningVideo(file)
+      const result = await uploadOpeningVideo(file, {
+        onProgress: (percent) => setOpeningProgress(percent),
+      })
       setOpeningVideo(result?.path ? result : null)
       setMessage('Opening Screen Intro Video updated successfully.')
     } catch (requestError) {
       setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload opening video')
     } finally {
       setUploadingOpening(false)
+      setOpeningProgress(0)
       if (openingRef.current) openingRef.current.value = ''
     }
   }
@@ -248,10 +263,11 @@ export default function BrandingPage() {
               className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
               disabled={uploadingLogo || loading}
             >
-              {uploadingLogo ? 'Uploading...' : form.logo_url ? 'Replace Logo' : 'Upload Logo'}
+              {uploadingLogo ? `Uploading... ${logoProgress}%` : form.logo_url ? 'Replace Logo' : 'Upload Logo'}
             </button>
             {form.logo_url ? <span className="text-xs text-[var(--text-secondary)] truncate">{form.logo_url}</span> : null}
           </div>
+          {uploadingLogo ? <p className="mt-2 text-xs text-[var(--text-secondary)]">Upload progress: {logoProgress}%</p> : null}
         </label>
 
         <MediaCard
@@ -262,8 +278,10 @@ export default function BrandingPage() {
           hasMedia={Boolean(animatedVideo?.path)}
           onUploadClick={() => animatedRef.current?.click()}
           onDelete={onDeleteAnimated}
-          uploadLabel={uploadingAnimated ? 'Uploading...' : animatedVideo?.path ? 'Replace' : 'Upload'}
+          uploadLabel={uploadingAnimated ? `Uploading... ${animatedProgress}%` : animatedVideo?.path ? 'Replace' : 'Upload'}
           deleteLabel={deletingAnimated ? 'Deleting...' : 'Delete'}
+          progress={animatedProgress}
+          showProgress={uploadingAnimated}
           preview={
             animatedVideo?.path ? (
               <video
@@ -296,8 +314,10 @@ export default function BrandingPage() {
           hasMedia={Boolean(openingVideo?.path)}
           onUploadClick={() => openingRef.current?.click()}
           onDelete={onDeleteOpening}
-          uploadLabel={uploadingOpening ? 'Uploading...' : openingVideo?.path ? 'Replace' : 'Upload'}
+          uploadLabel={uploadingOpening ? `Uploading... ${openingProgress}%` : openingVideo?.path ? 'Replace' : 'Upload'}
           deleteLabel={deletingOpening ? 'Deleting...' : 'Delete'}
+          progress={openingProgress}
+          showProgress={uploadingOpening}
           preview={
             openingVideo?.path ? (
               <video
@@ -360,6 +380,8 @@ function MediaCard({
   onDelete,
   uploadLabel,
   deleteLabel,
+  progress = 0,
+  showProgress = false,
   preview,
   children,
 }) {
@@ -388,6 +410,7 @@ function MediaCard({
           {deleteLabel}
         </button>
       </div>
+      {showProgress ? <p className="mt-2 text-xs text-[var(--text-secondary)]">Upload progress: {progress}%</p> : null}
 
       <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
         {loading ? <p className="text-sm text-[var(--text-secondary)]">Loading media metadata...</p> : preview}

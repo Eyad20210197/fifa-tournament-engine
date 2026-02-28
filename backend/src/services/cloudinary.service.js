@@ -18,6 +18,23 @@ function normalizePublicId(publicId) {
   return value || undefined
 }
 
+function normalizeUploadResponse(uploaded) {
+  const secureUrl = String(uploaded?.secure_url || uploaded?.url || '').trim()
+  const publicId = String(uploaded?.public_id || '').trim()
+  const resourceType = String(uploaded?.resource_type || '').trim()
+
+  if (!secureUrl || !publicId) {
+    throw new Error('Cloudinary upload did not return secure_url/public_id')
+  }
+
+  return {
+    ...uploaded,
+    secure_url: secureUrl,
+    public_id: publicId,
+    resource_type: resourceType || undefined,
+  }
+}
+
 export async function uploadBufferToCloudinary({
   buffer,
   mimeType,
@@ -33,7 +50,23 @@ export async function uploadBufferToCloudinary({
     overwrite: false,
     invalidate: true,
   })
-  return uploaded
+  return normalizeUploadResponse(uploaded)
+}
+
+export async function uploadFileToCloudinary({
+  filePath,
+  folder,
+  resourceType,
+  publicId,
+}) {
+  const uploaded = await cloudinary.uploader.upload(filePath, {
+    folder,
+    resource_type: resourceType,
+    public_id: normalizePublicId(publicId),
+    overwrite: false,
+    invalidate: true,
+  })
+  return normalizeUploadResponse(uploaded)
 }
 
 export async function uploadLargeFileToCloudinary({
@@ -41,17 +74,54 @@ export async function uploadLargeFileToCloudinary({
   folder,
   resourceType,
   publicId,
-  chunkSizeBytes = 20 * 1024 * 1024,
+  chunkSizeBytes = 6000000,
 }) {
-  const uploaded = await cloudinary.uploader.upload_large(filePath, {
-    folder,
-    resource_type: resourceType,
-    public_id: normalizePublicId(publicId),
-    chunk_size: chunkSizeBytes,
-    overwrite: false,
-    invalidate: true,
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const onComplete = (error, result) => {
+      if (settled) return
+      if (error) {
+        settled = true
+        reject(error)
+        return
+      }
+
+      try {
+        const normalized = normalizeUploadResponse(result)
+        settled = true
+        resolve(normalized)
+      } catch (normalizationError) {
+        settled = true
+        reject(normalizationError)
+      }
+    }
+
+    try {
+      const stream = cloudinary.uploader.upload_large(
+        filePath,
+        {
+          folder,
+          resource_type: resourceType,
+          public_id: normalizePublicId(publicId),
+          chunk_size: chunkSizeBytes,
+          overwrite: false,
+          invalidate: true,
+        },
+        onComplete,
+      )
+
+      if (stream && typeof stream.on === 'function') {
+        stream.on('error', (streamError) => {
+          if (settled) return
+          settled = true
+          reject(streamError)
+        })
+      }
+    } catch (error) {
+      reject(error)
+    }
   })
-  return uploaded
 }
 
 export async function deleteFromCloudinary(publicId, resourceType) {

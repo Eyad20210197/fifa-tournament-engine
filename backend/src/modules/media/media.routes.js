@@ -11,7 +11,7 @@ import { asyncHandler } from '../../utils/asyncHandler.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { authorize } from '../../middleware/authorize.js'
 import { HttpError } from '../../utils/httpError.js'
-import { deleteFromCloudinary, uploadBufferToCloudinary, uploadLargeFileToCloudinary } from '../../services/cloudinary.service.js'
+import { deleteFromCloudinary, uploadFileToCloudinary, uploadLargeFileToCloudinary } from '../../services/cloudinary.service.js'
 
 const MAX_VIDEO_BYTES = 260 * 1024 * 1024
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -29,6 +29,22 @@ const uploadTypeSchema = z.object({
   type: z.string().min(1),
 })
 
+function assertCloudinaryUpload(uploadResult) {
+  const secureUrl = String(uploadResult?.secure_url || '').trim()
+  const publicId = String(uploadResult?.public_id || '').trim()
+  const resourceType = String(uploadResult?.resource_type || '').trim()
+
+  if (!secureUrl || !publicId) {
+    throw new HttpError(502, 'Cloudinary upload returned invalid metadata')
+  }
+
+  return {
+    secure_url: secureUrl,
+    public_id: publicId,
+    resource_type: resourceType || undefined,
+  }
+}
+
 const uploadVideo = multer({
   dest: TEMP_UPLOAD_DIR,
   limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
@@ -42,7 +58,7 @@ const uploadVideo = multer({
 })
 
 const uploadImage = multer({
-  storage: multer.memoryStorage(),
+  dest: TEMP_UPLOAD_DIR,
   limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
   fileFilter(req, file, cb) {
     const mime = String(file.mimetype || '').toLowerCase()
@@ -244,13 +260,14 @@ async function handleVideoUpload(req, res) {
 
   let uploadResult = null
   try {
-    uploadResult = await uploadLargeFileToCloudinary({
+    const uploaded = await uploadLargeFileToCloudinary({
       filePath: file.path,
       folder,
       resourceType: 'video',
       publicId: buildVideoPublicId(type, req.user.business_id),
       chunkSizeBytes: VIDEO_UPLOAD_CHUNK_BYTES,
     })
+    uploadResult = assertCloudinaryUpload(uploaded)
 
     const persisted = await upsertVideoAssetAndBusiness(
       type,
@@ -297,62 +314,66 @@ mediaRouter.post(
     if (!ALLOWED_IMAGE_TYPES.has(type)) throw new HttpError(400, 'Unsupported logo type')
 
     const file = req.file
-    if (!file) throw new HttpError(400, 'Image file is required')
+    if (!file?.path) throw new HttpError(400, 'Image file is required')
     const mimeType = String(file.mimetype || '').toLowerCase()
     if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) throw new HttpError(400, 'Only image files are allowed')
 
-    const uploadResult = await uploadBufferToCloudinary({
-      buffer: file.buffer,
-      mimeType,
-      folder: type === 'sponsor' ? env.cloudinaryFolderSponsor : env.cloudinaryFolderBranding,
-      resourceType: 'image',
-      publicId: `${type}-b${req.user.business_id}-${Date.now()}-${randomSuffix()}`,
-    })
+    try {
+      const uploadResult = await uploadFileToCloudinary({
+        filePath: file.path,
+        folder: type === 'sponsor' ? env.cloudinaryFolderSponsor : env.cloudinaryFolderBranding,
+        resourceType: 'image',
+        publicId: `${type}-b${req.user.business_id}-${Date.now()}-${randomSuffix()}`,
+      })
+      const normalizedUpload = assertCloudinaryUpload(uploadResult)
 
-    if (type === 'branding_logo') {
-      const existing = await query(
-        `SELECT public_id, resource_type
-         FROM media_assets
-         WHERE business_id = $1 AND type = 'branding_logo'
-         LIMIT 1`,
-        [req.user.business_id],
-      )
+      if (type === 'branding_logo') {
+        const existing = await query(
+          `SELECT public_id, resource_type
+           FROM media_assets
+           WHERE business_id = $1 AND type = 'branding_logo'
+           LIMIT 1`,
+          [req.user.business_id],
+        )
 
-      await query(
-        `INSERT INTO media_assets (business_id, type, path, mime_type, size_bytes, public_id, resource_type)
-         VALUES ($1, 'branding_logo', $2, $3, $4, $5, 'image')
-         ON CONFLICT (business_id, type)
-         DO UPDATE SET
-           path = EXCLUDED.path,
-           mime_type = EXCLUDED.mime_type,
-           size_bytes = EXCLUDED.size_bytes,
-           public_id = EXCLUDED.public_id,
-           resource_type = EXCLUDED.resource_type,
-           updated_at = NOW()`,
-        [req.user.business_id, uploadResult.secure_url, mimeType, Number(file.size || 0), uploadResult.public_id],
-      )
+        await query(
+          `INSERT INTO media_assets (business_id, type, path, mime_type, size_bytes, public_id, resource_type)
+           VALUES ($1, 'branding_logo', $2, $3, $4, $5, 'image')
+           ON CONFLICT (business_id, type)
+           DO UPDATE SET
+             path = EXCLUDED.path,
+             mime_type = EXCLUDED.mime_type,
+             size_bytes = EXCLUDED.size_bytes,
+             public_id = EXCLUDED.public_id,
+             resource_type = EXCLUDED.resource_type,
+             updated_at = NOW()`,
+          [req.user.business_id, normalizedUpload.secure_url, mimeType, Number(file.size || 0), normalizedUpload.public_id],
+        )
 
-      await query(
-        `UPDATE businesses
-         SET logo_url = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [uploadResult.secure_url, req.user.business_id],
-      )
+        await query(
+          `UPDATE businesses
+           SET logo_url = $1, updated_at = NOW()
+           WHERE id = $2`,
+          [normalizedUpload.secure_url, req.user.business_id],
+        )
 
-      const oldPublicId = existing.rows[0]?.public_id
-      if (oldPublicId && oldPublicId !== uploadResult.public_id) {
-        await deleteFromCloudinary(oldPublicId, existing.rows[0]?.resource_type || 'image').catch(() => null)
+        const oldPublicId = existing.rows[0]?.public_id
+        if (oldPublicId && oldPublicId !== normalizedUpload.public_id) {
+          await deleteFromCloudinary(oldPublicId, existing.rows[0]?.resource_type || 'image').catch(() => null)
+        }
       }
-    }
 
-    return res.status(201).json({
-      success: true,
-      data: {
-        url: uploadResult.secure_url,
-        public_id: uploadResult.public_id,
-        resource_type: 'image',
-        type,
-      },
-    })
+      return res.status(201).json({
+        success: true,
+        data: {
+          url: normalizedUpload.secure_url,
+          public_id: normalizedUpload.public_id,
+          resource_type: 'image',
+          type,
+        },
+      })
+    } finally {
+      await safeUnlink(file.path)
+    }
   }),
 )

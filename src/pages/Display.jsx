@@ -61,7 +61,6 @@ function mapDetailsToDisplayState(details) {
 
 export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
-  const tournament = useTournamentStore((s) => s.tournament)
   const tournamentId = useTournamentStore((s) => s.tournament.id)
   const liveMatchId = useTournamentStore((s) => s.liveMatchState.matchId)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
@@ -183,9 +182,8 @@ export default function Display() {
       <div className="mx-auto flex h-[100dvh] w-[96vw] max-w-[2400px] flex-col overflow-hidden py-2">
         <header className="mb-2 shrink-0 rounded-3xl border border-white/10 bg-black/25 px-4 py-2 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex items-center">
               <AnimatedHeaderLogo brandingLogoUrl={branding?.animated_logo_url} />
-              <h1 className="truncate text-[clamp(1.1rem,1.8vw,2.2rem)] font-semibold">{tournament?.name || 'البطولة'}</h1>
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full border border-[var(--primary-color)]/45 bg-[var(--primary-color)]/12 px-3 py-1 text-[clamp(0.75rem,0.95vw,1rem)] text-[var(--secondary-color)]">
@@ -250,7 +248,7 @@ function AnimatedHeaderLogo({ brandingLogoUrl }) {
       loop
       playsInline
       preload="auto"
-      className="hidden h-[clamp(40px,3.8vw,88px)] w-[clamp(96px,9vw,190px)] object-contain lg:block"
+      className="hidden h-[clamp(120px,12vw,300px)] w-[clamp(320px,30vw,760px)] object-contain lg:block"
       aria-label="Animated tournament logo"
     />
   )

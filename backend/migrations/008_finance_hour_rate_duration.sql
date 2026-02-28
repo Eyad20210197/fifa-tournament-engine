@@ -1,0 +1,4 @@
+ALTER TABLE tournament_financials
+  ADD COLUMN IF NOT EXISTS hour_rate NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS match_duration_minutes NUMERIC(10,2) NOT NULL DEFAULT 0;
+

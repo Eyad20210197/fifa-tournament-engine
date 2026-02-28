@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/useAuth'
 import { ROLES } from '../../auth/roles'
 import { fetchTournaments } from '../../services/tournamentService'
@@ -7,6 +7,7 @@ import {
   deleteExpense,
   deleteFinancialSetup,
   fetchExpenses,
+  fetchFinancialSetup,
   fetchFinanceSummary,
   upsertFinancialSetup,
 } from '../../services/financeService'
@@ -27,6 +28,8 @@ export default function Finance() {
     entry_fee: '',
     sponsor_amount: '',
     expected_teams: '',
+    hour_rate: '',
+    match_duration_minutes: '',
     expense_title: '',
     expense_amount: '',
   })
@@ -45,10 +48,20 @@ export default function Finance() {
     setLoading(true)
     setError('')
     try {
-      const [summaryData, expenseRows] = await Promise.all([
+      const [setupData, summaryData, expenseRows] = await Promise.all([
+        fetchFinancialSetup(Number(tournamentId)).catch(() => null),
         fetchFinanceSummary(Number(tournamentId)).catch(() => null),
         fetchExpenses(Number(tournamentId)).catch(() => []),
       ])
+
+      setForm((state) => ({
+        ...state,
+        entry_fee: String(setupData?.entry_fee ?? ''),
+        sponsor_amount: String(setupData?.sponsor_amount ?? ''),
+        expected_teams: String(setupData?.expected_teams ?? ''),
+        hour_rate: String(setupData?.hour_rate ?? ''),
+        match_duration_minutes: String(setupData?.match_duration_minutes ?? ''),
+      }))
       setSummary(summaryData)
       setExpenses(expenseRows || [])
     } catch (requestError) {
@@ -68,9 +81,12 @@ export default function Finance() {
     () => [
       { key: 'revenue', label: 'إجمالي الإيرادات', value: formatArabicCurrency(summary?.total_revenue || 0) },
       { key: 'costs', label: 'إجمالي المصروفات', value: formatArabicCurrency(summary?.total_costs || 0) },
+      { key: 'operating-costs', label: 'تكلفة التشغيل', value: formatArabicCurrency(summary?.operating_costs || 0) },
+      { key: 'manual-costs', label: 'مصروفات يدوية', value: formatArabicCurrency(summary?.manual_costs || 0) },
       { key: 'profit', label: 'صافي الربح', value: formatArabicCurrency(summary?.net_profit || 0) },
       { key: 'margin', label: 'نسبة الربح', value: formatArabicPercent(summary?.profit_margin || 0) },
       { key: 'break', label: 'نقطة التعادل', value: `${formatArabicNumber(summary?.break_even_teams || 0)} فريق` },
+      { key: 'matches', label: 'إجمالي المباريات', value: formatArabicNumber(summary?.total_matches || 0) },
     ],
     [summary],
   )
@@ -87,6 +103,8 @@ export default function Finance() {
         entry_fee: Number(form.entry_fee || 0),
         sponsor_amount: Number(form.sponsor_amount || 0),
         expected_teams: Number(form.expected_teams || 0),
+        hour_rate: Number(form.hour_rate || 0),
+        match_duration_minutes: Number(form.match_duration_minutes || 0),
       })
       await loadFinanceData(selectedTournamentId)
     } catch (requestError) {
@@ -170,7 +188,7 @@ export default function Finance() {
       {loading ? <p className="text-sm text-[var(--text-secondary)]">جار تحميل البيانات المالية...</p> : null}
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((item) => (
           <article key={item.key} className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <p className="text-xs text-[var(--text-secondary)]">{item.label}</p>
@@ -203,6 +221,16 @@ export default function Finance() {
                 placeholder="عدد الفرق المتوقع"
                 value={form.expected_teams}
                 onChange={(event) => setForm((state) => ({ ...state, expected_teams: event.target.value }))}
+              />
+              <Field
+                placeholder="سعر الساعة (ج.م)"
+                value={form.hour_rate}
+                onChange={(event) => setForm((state) => ({ ...state, hour_rate: event.target.value }))}
+              />
+              <Field
+                placeholder="مدة المباراة (دقيقة)"
+                value={form.match_duration_minutes}
+                onChange={(event) => setForm((state) => ({ ...state, match_duration_minutes: event.target.value }))}
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -337,4 +365,3 @@ function SimpleFinanceChart({ revenue, costs }) {
     </div>
   )
 }
-

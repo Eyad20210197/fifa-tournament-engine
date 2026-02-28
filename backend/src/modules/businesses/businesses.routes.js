@@ -97,7 +97,7 @@ businessesRouter.post(
 )
 
 businessesRouter.patch(
-  '/:id',
+  '/:id(\\d+)',
   authorize('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const businessId = Number(req.params.id)
@@ -186,7 +186,7 @@ businessesRouter.patch(
 )
 
 businessesRouter.patch(
-  '/:id/subscription',
+  '/:id(\\d+)/subscription',
   authorize('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const businessId = Number(req.params.id)
@@ -203,7 +203,7 @@ businessesRouter.patch(
 )
 
 businessesRouter.delete(
-  '/:id',
+  '/:id(\\d+)',
   authorize('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const businessId = Number(req.params.id)

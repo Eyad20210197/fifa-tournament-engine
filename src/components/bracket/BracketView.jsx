@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+﻿import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { formatArabicNumber } from '../../utils/format'
@@ -10,16 +10,16 @@ export function BracketView() {
   const matches = useTournamentStore((s) => s.matches)
   const teams = useTournamentStore((s) => s.teams)
 
-  const roundPages = useMemo(() => {
+  const stagePages = useMemo(() => {
     const nameById = new Map(teams.map((team) => [team.id, team.teamName]))
     const knockout = matches.filter((item) => item.mode === 'knockout').slice()
     knockout.sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.order ?? 0) - (b.order ?? 0))
 
     const grouped = new Map()
     for (const match of knockout) {
-      const roundNumber = Number(match.round ?? 1)
-      if (!grouped.has(roundNumber)) grouped.set(roundNumber, [])
-      grouped.get(roundNumber).push({
+      const stageName = String(match.stageName || `الجولة ${formatArabicNumber(match.round ?? 1)}`)
+      if (!grouped.has(stageName)) grouped.set(stageName, [])
+      grouped.get(stageName).push({
         ...match,
         homeName: nameById.get(match.homeTeamId) || '--',
         awayName: nameById.get(match.awayTeamId) || '--',
@@ -27,21 +27,21 @@ export function BracketView() {
     }
 
     const pages = []
-    for (const [roundNumber, roundMatches] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
-      const totalParts = Math.ceil(roundMatches.length / MATCHES_PER_PAGE) || 1
-      for (let i = 0; i < roundMatches.length; i += MATCHES_PER_PAGE) {
+    for (const [stageName, stageMatches] of grouped.entries()) {
+      const totalParts = Math.ceil(stageMatches.length / MATCHES_PER_PAGE) || 1
+      for (let i = 0; i < stageMatches.length; i += MATCHES_PER_PAGE) {
         pages.push({
-          roundNumber,
+          stageName,
           partIndex: Math.floor(i / MATCHES_PER_PAGE) + 1,
           totalParts,
-          matches: roundMatches.slice(i, i + MATCHES_PER_PAGE),
+          matches: stageMatches.slice(i, i + MATCHES_PER_PAGE),
         })
       }
     }
     return pages
   }, [matches, teams])
 
-  const { page, pageIndex, pages, swipeHandlers } = useSwipePages(roundPages, 1, 12000)
+  const { page, pageIndex, pages, swipeHandlers } = useSwipePages(stagePages, 1, 12000)
   const active = page[0] || null
 
   if (!active) {
@@ -56,7 +56,7 @@ export function BracketView() {
     <section className="flex h-full flex-col gap-3 overflow-hidden px-2 py-2" {...swipeHandlers}>
       <h2 className="shrink-0 text-center font-headline text-[clamp(1.6rem,3.4vw,4rem)] font-semibold">شجرة البطولة</h2>
       <p className="shrink-0 text-center font-headline text-[clamp(1rem,1.8vw,2.2rem)] text-[var(--secondary-color)]">
-        Round {formatArabicNumber(active.roundNumber)}
+        {active.stageName}
         {active.totalParts > 1 ? ` • ${active.partIndex}/${active.totalParts}` : ''}
       </p>
 
@@ -70,12 +70,16 @@ export function BracketView() {
           className="grid min-h-0 flex-1 auto-rows-fr gap-3"
         >
           {active.matches.map((match) => (
-            <article key={match.id} className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]">
+            <article
+              key={match.id}
+              className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]"
+            >
               <p className="truncate text-right font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.homeName}</p>
               <div className="text-center">
                 <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
                   {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
                 </p>
+                <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{match.legNumber === 2 ? 'إياب' : 'ذهاب'}</p>
                 <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{statusLabel(match.status)}</p>
               </div>
               <p className="truncate text-left font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.awayName}</p>

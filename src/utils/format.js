@@ -10,7 +10,7 @@ export function formatArabicNumber(value, options = {}) {
   }).format(number)
 }
 
-export function formatArabicCurrency(value, suffix = 'ر.س') {
+export function formatArabicCurrency(value, suffix = 'ج.م') {
   return `${formatArabicNumber(value, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${suffix}`
 }
 

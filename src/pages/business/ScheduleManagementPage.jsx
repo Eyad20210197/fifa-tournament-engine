@@ -18,6 +18,13 @@ import { formatArabicDateTime } from '../../utils/format'
 const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
 const MAX_TEAMS = 128
+const KNOCKOUT_STAGE_OPTIONS = [
+  { value: 'final', label: 'النهائي' },
+  { value: 'semi_final', label: 'نصف النهائي' },
+  { value: 'quarter_final', label: 'ربع النهائي' },
+  { value: 'round_of_16', label: 'دور الـ16' },
+  { value: 'round_of_32', label: 'دور الـ32' },
+]
 
 function toLocalDateTime(value) {
   if (!value) return ''
@@ -104,6 +111,8 @@ export default function ScheduleManagementPage() {
     format: '\u062f\u0648\u0631\u064a',
     starts_at: '',
     sponsor_logo_url: '',
+    home_away_enabled: false,
+    home_away_stage: 'league',
   })
   const [settings, setSettings] = useState({
     name: '',
@@ -112,11 +121,15 @@ export default function ScheduleManagementPage() {
     starts_at: '',
     ends_at: '',
     sponsor_logo_url: '',
+    home_away_enabled: false,
+    home_away_stage: 'league',
   })
   const [financial, setFinancial] = useState({
     entry_fee: '',
     sponsor_amount: '',
     expected_teams: '',
+    hour_rate: '',
+    match_duration_minutes: '',
   })
   const [financeSummary, setFinanceSummary] = useState(null)
   const [teams, setTeams] = useState([emptyTeam(), emptyTeam()])
@@ -152,11 +165,15 @@ export default function ScheduleManagementPage() {
       starts_at: toLocalDateTime(data?.starts_at),
       ends_at: toLocalDateTime(data?.ends_at),
       sponsor_logo_url: data?.sponsor_logo_url || '',
+      home_away_enabled: Boolean(data?.home_away_enabled),
+      home_away_stage: data?.home_away_stage || (data?.format === 'دوري' ? 'league' : 'final'),
     })
     setFinancial({
       entry_fee: String(financialData?.entry_fee ?? ''),
       sponsor_amount: String(financialData?.sponsor_amount ?? ''),
       expected_teams: String(financialData?.expected_teams ?? ''),
+      hour_rate: String(financialData?.hour_rate ?? ''),
+      match_duration_minutes: String(financialData?.match_duration_minutes ?? ''),
     })
     setFinanceSummary(financeSummaryData || null)
 
@@ -249,6 +266,8 @@ export default function ScheduleManagementPage() {
         format: createForm.format,
         starts_at: createForm.starts_at || null,
         sponsor_logo_url: createForm.sponsor_logo_url.trim() || null,
+        home_away_enabled: Boolean(createForm.home_away_enabled),
+        home_away_stage: createForm.home_away_enabled ? createForm.home_away_stage : null,
         teams: [],
       })
       await loadTournaments()
@@ -258,6 +277,8 @@ export default function ScheduleManagementPage() {
         format: createForm.format,
         starts_at: '',
         sponsor_logo_url: '',
+        home_away_enabled: false,
+        home_away_stage: createForm.format === 'دوري' ? 'league' : 'final',
       })
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to create tournament')
@@ -300,6 +321,8 @@ export default function ScheduleManagementPage() {
         starts_at: settings.starts_at || null,
         ends_at: settings.ends_at || null,
         sponsor_logo_url: settings.sponsor_logo_url.trim() || null,
+        home_away_enabled: Boolean(settings.home_away_enabled),
+        home_away_stage: settings.home_away_enabled ? settings.home_away_stage : null,
       })
       await loadTournaments()
       await loadDetails(selectedTournamentId)
@@ -395,6 +418,8 @@ export default function ScheduleManagementPage() {
         entry_fee: Number(financial.entry_fee || 0),
         sponsor_amount: Number(financial.sponsor_amount || 0),
         expected_teams: Number(financial.expected_teams || 0),
+        hour_rate: Number(financial.hour_rate || 0),
+        match_duration_minutes: Number(financial.match_duration_minutes || 0),
       })
       const summary = await fetchFinanceSummary(Number(selectedTournamentId)).catch(() => null)
       setFinanceSummary(summary)
@@ -415,6 +440,8 @@ export default function ScheduleManagementPage() {
         entry_fee: '',
         sponsor_amount: '',
         expected_teams: '',
+        hour_rate: '',
+        match_duration_minutes: '',
       })
       setFinanceSummary(null)
     } catch (e) {
@@ -434,7 +461,13 @@ export default function ScheduleManagementPage() {
             <select
               className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
               value={createForm.format}
-              onChange={(event) => setCreateForm((s) => ({ ...s, format: event.target.value }))}
+              onChange={(event) =>
+                setCreateForm((s) => ({
+                  ...s,
+                  format: event.target.value,
+                  home_away_stage: event.target.value === 'دوري' ? 'league' : 'final',
+                }))
+              }
             >
               <option value={'\u062f\u0648\u0631\u064a'}>League</option>
               <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
@@ -450,6 +483,32 @@ export default function ScheduleManagementPage() {
               onChange={(e) => setCreateForm((s) => ({ ...s, sponsor_logo_url: e.target.value }))}
               placeholder="Sponsor logo URL"
             />
+            <label className="flex min-h-11 items-center gap-2 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={createForm.home_away_enabled}
+                onChange={(event) =>
+                  setCreateForm((s) => ({
+                    ...s,
+                    home_away_enabled: event.target.checked,
+                    home_away_stage: s.format === 'دوري' ? 'league' : s.home_away_stage || 'final',
+                  }))
+                }
+              />
+              ذهاب وإياب
+            </label>
+            <select
+              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 disabled:opacity-50"
+              disabled={!createForm.home_away_enabled}
+              value={createForm.home_away_stage}
+              onChange={(event) => setCreateForm((s) => ({ ...s, home_away_stage: event.target.value }))}
+            >
+              {(createForm.format === 'دوري' ? [{ value: 'league', label: 'مرحلة الدوري' }] : KNOCKOUT_STAGE_OPTIONS).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             type="button"
@@ -508,7 +567,13 @@ export default function ScheduleManagementPage() {
               <select
                 className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
                 value={settings.format}
-                onChange={(event) => setSettings((s) => ({ ...s, format: event.target.value }))}
+                onChange={(event) =>
+                  setSettings((s) => ({
+                    ...s,
+                    format: event.target.value,
+                    home_away_stage: event.target.value === 'دوري' ? 'league' : 'final',
+                  }))
+                }
               >
                 <option value={'\u062f\u0648\u0631\u064a'}>League</option>
                 <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
@@ -541,6 +606,32 @@ export default function ScheduleManagementPage() {
                 placeholder="Sponsor logo URL"
                 className="md:col-span-2"
               />
+              <label className="flex min-h-11 items-center gap-2 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.home_away_enabled}
+                  onChange={(event) =>
+                    setSettings((s) => ({
+                      ...s,
+                      home_away_enabled: event.target.checked,
+                      home_away_stage: s.format === 'دوري' ? 'league' : s.home_away_stage || 'final',
+                    }))
+                  }
+                />
+                ذهاب وإياب
+              </label>
+              <select
+                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 disabled:opacity-50"
+                disabled={!settings.home_away_enabled}
+                value={settings.home_away_stage}
+                onChange={(event) => setSettings((s) => ({ ...s, home_away_stage: event.target.value }))}
+              >
+                {(settings.format === 'دوري' ? [{ value: 'league', label: 'مرحلة الدوري' }] : KNOCKOUT_STAGE_OPTIONS).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -563,7 +654,7 @@ export default function ScheduleManagementPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <p className="text-base font-semibold">Financial Setup</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="mt-3 grid gap-3 md:grid-cols-5">
               <Field
                 value={financial.entry_fee}
                 onChange={(e) => setFinancial((s) => ({ ...s, entry_fee: e.target.value }))}
@@ -578,6 +669,16 @@ export default function ScheduleManagementPage() {
                 value={financial.expected_teams}
                 onChange={(e) => setFinancial((s) => ({ ...s, expected_teams: e.target.value }))}
                 placeholder="Expected teams"
+              />
+              <Field
+                value={financial.hour_rate}
+                onChange={(e) => setFinancial((s) => ({ ...s, hour_rate: e.target.value }))}
+                placeholder="Hour rate (EGP)"
+              />
+              <Field
+                value={financial.match_duration_minutes}
+                onChange={(e) => setFinancial((s) => ({ ...s, match_duration_minutes: e.target.value }))}
+                placeholder="Match duration (min)"
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -599,12 +700,15 @@ export default function ScheduleManagementPage() {
               </button>
             </div>
             {financeSummary ? (
-              <div className="mt-3 grid gap-2 text-xs text-[var(--text-secondary)] md:grid-cols-5">
+              <div className="mt-3 grid gap-2 text-xs text-[var(--text-secondary)] md:grid-cols-8">
                 <Stat label="Revenue" value={financeSummary.total_revenue} />
                 <Stat label="Costs" value={financeSummary.total_costs} />
+                <Stat label="Operating Costs" value={financeSummary.operating_costs} />
+                <Stat label="Manual Costs" value={financeSummary.manual_costs} />
                 <Stat label="Net" value={financeSummary.net_profit} />
                 <Stat label="Margin %" value={financeSummary.profit_margin} />
                 <Stat label="Break-even Teams" value={financeSummary.break_even_teams} />
+                <Stat label="Total Matches" value={financeSummary.total_matches} />
               </div>
             ) : null}
           </div>
@@ -747,7 +851,7 @@ export default function ScheduleManagementPage() {
             <thead className="bg-white/5 text-[var(--text-secondary)]">
               <tr>
                 {isAdmin ? <th className="px-4 py-3">Select</th> : null}
-                <th className="px-4 py-3">Round</th>
+                <th className="px-4 py-3">المرحلة</th>
                 <th className="px-4 py-3">Match</th>
                 <th className="px-4 py-3">Start time</th>
                 {isAdmin ? <th className="px-4 py-3">Action</th> : null}
@@ -770,7 +874,7 @@ export default function ScheduleManagementPage() {
                         />
                       </td>
                     ) : null}
-                    <td className="px-4 py-3 text-[var(--text-secondary)]">{match.round_number || '--'}</td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">{formatStageName(match)}</td>
                     <td className="px-4 py-3">
                       {(teamNameById.get(Number(match.home_team_id)) || '---') + ' vs ' + (teamNameById.get(Number(match.away_team_id)) || '---')}
                     </td>
@@ -862,5 +966,13 @@ function translateStatus(status) {
   if (status === 'live') return 'Live'
   if (status === 'finished') return 'Finished'
   return 'Unknown'
+}
+
+function formatStageName(match) {
+  const base = String(match?.stage_name || '').trim()
+  const leg = Number(match?.leg_number || 1)
+  if (!base) return '--'
+  if (leg === 2) return `${base} - إياب`
+  return `${base} - ذهاب`
 }
 

@@ -14,6 +14,8 @@ const financialSchema = z.object({
   entry_fee: z.coerce.number().nonnegative().default(0),
   sponsor_amount: z.coerce.number().nonnegative().default(0),
   expected_teams: z.coerce.number().int().nonnegative().default(0),
+  hour_rate: z.coerce.number().nonnegative().default(0),
+  match_duration_minutes: z.coerce.number().nonnegative().default(0),
 })
 
 const expenseSchema = z.object({
@@ -33,15 +35,25 @@ financeRouter.post(
     const payload = parsed.data
 
     const result = await query(
-      `INSERT INTO tournament_financials (business_id, tournament_id, entry_fee, sponsor_amount, expected_teams)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO tournament_financials (business_id, tournament_id, entry_fee, sponsor_amount, expected_teams, hour_rate, match_duration_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (tournament_id) DO UPDATE
        SET entry_fee = EXCLUDED.entry_fee,
            sponsor_amount = EXCLUDED.sponsor_amount,
            expected_teams = EXCLUDED.expected_teams,
+           hour_rate = EXCLUDED.hour_rate,
+           match_duration_minutes = EXCLUDED.match_duration_minutes,
            updated_at = NOW()
-       RETURNING id, tournament_id, entry_fee, sponsor_amount, expected_teams`,
-      [req.user.business_id, payload.tournament_id, payload.entry_fee, payload.sponsor_amount, payload.expected_teams],
+       RETURNING id, tournament_id, entry_fee, sponsor_amount, expected_teams, hour_rate, match_duration_minutes`,
+      [
+        req.user.business_id,
+        payload.tournament_id,
+        payload.entry_fee,
+        payload.sponsor_amount,
+        payload.expected_teams,
+        payload.hour_rate,
+        payload.match_duration_minutes,
+      ],
     )
 
     return res.status(201).json({ success: true, data: result.rows[0] })
@@ -54,7 +66,7 @@ financeRouter.get(
   asyncHandler(async (req, res) => {
     const tournamentId = Number(req.params.tournamentId)
     const result = await query(
-      `SELECT id, tournament_id, entry_fee, sponsor_amount, expected_teams
+      `SELECT id, tournament_id, entry_fee, sponsor_amount, expected_teams, hour_rate, match_duration_minutes
        FROM tournament_financials
        WHERE tournament_id = $1 AND business_id = $2
        LIMIT 1`,
@@ -139,7 +151,7 @@ financeRouter.get(
   asyncHandler(async (req, res) => {
     const tournamentId = Number(req.params.tournamentId)
     const details = await query(
-      `SELECT entry_fee, sponsor_amount, expected_teams
+      `SELECT entry_fee, sponsor_amount, expected_teams, hour_rate, match_duration_minutes
        FROM tournament_financials
        WHERE tournament_id = $1 AND business_id = $2
        LIMIT 1`,
@@ -153,9 +165,20 @@ financeRouter.get(
        WHERE tournament_id = $1 AND business_id = $2`,
       [tournamentId, req.user.business_id],
     )
+    const matchCountRows = await query(
+      `SELECT COUNT(*)::int AS total_matches
+       FROM tournament_matches
+       WHERE tournament_id = $1 AND business_id = $2`,
+      [tournamentId, req.user.business_id],
+    )
 
     const financial = details.rows[0]
-    const totalCosts = Number(expenseRows.rows[0]?.total_costs || 0)
+    const manualCosts = Number(expenseRows.rows[0]?.total_costs || 0)
+    const totalMatches = Number(matchCountRows.rows[0]?.total_matches || 0)
+    const hourRate = Number(financial.hour_rate || 0)
+    const matchDurationMinutes = Number(financial.match_duration_minutes || 0)
+    const operatingCosts = (hourRate * matchDurationMinutes * totalMatches) / 60
+    const totalCosts = manualCosts + operatingCosts
     const totalRevenue = Number(financial.entry_fee || 0) * Number(financial.expected_teams || 0) + Number(financial.sponsor_amount || 0)
     const netProfit = totalRevenue - totalCosts
     const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
@@ -166,9 +189,14 @@ financeRouter.get(
       data: {
         total_revenue: totalRevenue,
         total_costs: totalCosts,
+        manual_costs: manualCosts,
+        operating_costs: operatingCosts,
         net_profit: netProfit,
         profit_margin: Number(profitMargin.toFixed(2)),
         break_even_teams: breakEvenTeams !== null ? Math.max(0, breakEvenTeams) : null,
+        hour_rate: hourRate,
+        match_duration_minutes: matchDurationMinutes,
+        total_matches: totalMatches,
       },
     })
   }),

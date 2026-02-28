@@ -46,6 +46,7 @@ export function ScheduleList() {
                 <p className="font-latin text-[clamp(1.6rem,3.4vw,4rem)] text-[var(--secondary-color)]">
                   {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
                 </p>
+                <p className="font-headline text-[clamp(0.8rem,1.1vw,1.2rem)] text-white/70">{formatStageName(match)}</p>
                 <p className="font-headline text-[clamp(0.85rem,1.2vw,1.4rem)] text-white/75">{statusLabel(match.status)}</p>
                 <p className="font-latin text-[clamp(0.75rem,0.95vw,1.1rem)] text-white/50">#{formatArabicNumber(match.order ?? 0)}</p>
               </div>
@@ -58,6 +59,14 @@ export function ScheduleList() {
       {pages.length > 1 ? <p className="shrink-0 text-center font-latin text-xs text-white/60">{pageIndex + 1} / {pages.length}</p> : null}
     </section>
   )
+}
+
+function formatStageName(match) {
+  const stage = String(match?.stageName || '').trim()
+  const leg = Number(match?.legNumber || 1)
+  if (!stage) return `الجولة ${formatArabicNumber(match?.round || 1)}`
+  if (leg === 2) return `${stage} - إياب`
+  return `${stage} - ذهاب`
 }
 
 function statusLabel(status) {

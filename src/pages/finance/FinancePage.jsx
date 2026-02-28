@@ -37,6 +37,7 @@ export default function FinancePage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Info label="إجمالي الإيرادات" value={formatArabicCurrency(summary.total_revenue)} />
           <Info label="إجمالي المصروفات" value={formatArabicCurrency(summary.total_costs)} />
+          <Info label="تكلفة التشغيل" value={formatArabicCurrency(summary.operating_costs)} />
           <Info label="صافي الربح" value={formatArabicCurrency(summary.net_profit)} />
           <Info label="نسبة الربح" value={formatArabicPercent(summary.profit_margin)} />
           <Info label="نقطة التعادل" value={formatArabicNumber(summary.break_even_teams)} />

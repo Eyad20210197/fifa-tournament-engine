@@ -38,6 +38,8 @@ function mapDetailsToControlState(details) {
       awayScore: Number(match.away_score || 0),
       status: match.status || 'pending',
       round: Number(match.round_number || 1),
+      stageName: match.stage_name || '',
+      legNumber: Number(match.leg_number || 1),
       resultConfirmed: false,
       winnerTeamId: null,
     })),

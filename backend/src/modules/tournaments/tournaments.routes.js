@@ -37,6 +37,11 @@ const createTournamentSchema = z.object({
   starts_at: optionalDateTimeSchema.optional(),
   ends_at: optionalDateTimeSchema.optional(),
   sponsor_logo_url: z.string().optional().nullable(),
+  home_away_enabled: z.coerce.boolean().optional().default(false),
+  home_away_stage: z
+    .enum(['league', 'final', 'semi_final', 'quarter_final', 'round_of_16', 'round_of_32'])
+    .optional()
+    .nullable(),
   teams: z.array(teamInputSchema).max(128).default([]),
 })
 
@@ -47,6 +52,11 @@ const updateTournamentSchema = z.object({
   starts_at: optionalDateTimeSchema.optional(),
   ends_at: optionalDateTimeSchema.optional(),
   sponsor_logo_url: z.string().optional().nullable(),
+  home_away_enabled: z.coerce.boolean().optional(),
+  home_away_stage: z
+    .enum(['league', 'final', 'semi_final', 'quarter_final', 'round_of_16', 'round_of_32'])
+    .optional()
+    .nullable(),
 })
 
 const updateTeamsSchema = z.object({
@@ -76,38 +86,93 @@ function shuffleTeams(teams) {
   return list
 }
 
-function buildMatches(format, teams) {
+function knockoutStageKeyFromTeamCount(teamCount) {
+  if (teamCount <= 2) return 'final'
+  if (teamCount <= 4) return 'semi_final'
+  if (teamCount <= 8) return 'quarter_final'
+  if (teamCount <= 16) return 'round_of_16'
+  return 'round_of_32'
+}
+
+function stageLabelFromKey(stageKey) {
+  if (stageKey === 'final') return 'النهائي'
+  if (stageKey === 'semi_final') return 'نصف النهائي'
+  if (stageKey === 'quarter_final') return 'ربع النهائي'
+  if (stageKey === 'round_of_16') return 'دور الـ16'
+  if (stageKey === 'round_of_32') return 'دور الـ32'
+  return 'المرحلة الرئيسية'
+}
+
+function buildMatches(format, teams, config = {}) {
   const shuffled = shuffleTeams(teams)
   const matches = []
+  const homeAwayEnabled = Boolean(config.homeAwayEnabled)
+  const homeAwayStage = String(config.homeAwayStage || '').trim()
 
   if (format === FORMAT_LEAGUE) {
     let round = 1
     for (let i = 0; i < shuffled.length; i += 1) {
       for (let j = i + 1; j < shuffled.length; j += 1) {
-        matches.push({ home_team_id: shuffled[i].id, away_team_id: shuffled[j].id, round_number: round })
+        const stageName = `الجولة ${round}`
+        matches.push({
+          home_team_id: shuffled[i].id,
+          away_team_id: shuffled[j].id,
+          round_number: round,
+          stage_name: stageName,
+          leg_number: 1,
+        })
+        if (homeAwayEnabled && (!homeAwayStage || homeAwayStage === 'league')) {
+          matches.push({
+            home_team_id: shuffled[j].id,
+            away_team_id: shuffled[i].id,
+            round_number: round,
+            stage_name: stageName,
+            leg_number: 2,
+          })
+        }
         round += 1
       }
     }
     return matches
   }
 
-  let round = 1
+  const stageKey = knockoutStageKeyFromTeamCount(shuffled.length)
+  const stageName = stageLabelFromKey(stageKey)
+  const applyHomeAway = homeAwayEnabled && (!homeAwayStage || homeAwayStage === stageKey)
   for (let i = 0; i + 1 < shuffled.length; i += 2) {
-    matches.push({ home_team_id: shuffled[i].id, away_team_id: shuffled[i + 1].id, round_number: round })
+    matches.push({
+      home_team_id: shuffled[i].id,
+      away_team_id: shuffled[i + 1].id,
+      round_number: 1,
+      stage_name: stageName,
+      leg_number: 1,
+    })
+    if (applyHomeAway) {
+      matches.push({
+        home_team_id: shuffled[i + 1].id,
+        away_team_id: shuffled[i].id,
+        round_number: 1,
+        stage_name: stageName,
+        leg_number: 2,
+      })
+    }
   }
   return matches
 }
 
-async function regenerateMatches(client, { businessId, tournamentId, format, teams }) {
+async function regenerateMatches(client, { businessId, tournamentId, format, teams, homeAwayEnabled = false, homeAwayStage = null }) {
   await client.query('DELETE FROM tournament_matches WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
   await client.query('DELETE FROM tournament_standings WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
 
-  const matches = buildMatches(format, teams)
+  const matches = buildMatches(format, teams, {
+    homeAwayEnabled,
+    homeAwayStage,
+  })
   for (const match of matches) {
     await client.query(
-      `INSERT INTO tournament_matches (business_id, tournament_id, home_team_id, away_team_id, status, round_number)
-       VALUES ($1, $2, $3, $4, 'pending', $5)`,
-      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number],
+      `INSERT INTO tournament_matches (business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)`,
+      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number],
     )
   }
 }
@@ -119,6 +184,7 @@ tournamentsRouter.get(
   asyncHandler(async (req, res) => {
     const result = await query(
       `SELECT t.id, t.name, t.format, t.status, t.starts_at, t.ends_at, t.sponsor_logo_url, t.created_at,
+              t.home_away_enabled, t.home_away_stage,
               COUNT(tt.id)::int AS teams_count
        FROM tournaments t
        LEFT JOIN tournament_teams tt ON tt.tournament_id = t.id AND tt.business_id = t.business_id
@@ -141,9 +207,9 @@ tournamentsRouter.post(
     const payload = parsed.data
     const created = await withTransaction(async (client) => {
       const tournamentResult = await client.query(
-        `INSERT INTO tournaments (business_id, name, format, status, starts_at, ends_at, sponsor_logo_url)
-         VALUES ($1, $2, $3, 'draft', $4, $5, $6)
-         RETURNING id, business_id, name, format, status, starts_at, ends_at, sponsor_logo_url, created_at`,
+        `INSERT INTO tournaments (business_id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage)
+         VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8)
+         RETURNING id, business_id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, created_at`,
         [
           req.user.business_id,
           payload.name,
@@ -151,6 +217,8 @@ tournamentsRouter.post(
           payload.starts_at || null,
           payload.ends_at || null,
           payload.sponsor_logo_url || null,
+          payload.home_away_enabled ?? false,
+          payload.home_away_stage ?? null,
         ],
       )
       const tournament = tournamentResult.rows[0]
@@ -177,6 +245,8 @@ tournamentsRouter.post(
           tournamentId: tournament.id,
           format: payload.format,
           teams,
+          homeAwayEnabled: payload.home_away_enabled ?? false,
+          homeAwayStage: payload.home_away_stage ?? null,
         })
       }
 
@@ -192,7 +262,7 @@ tournamentsRouter.get(
   asyncHandler(async (req, res) => {
     const tournamentId = Number(req.params.id)
     const tournament = await query(
-      `SELECT id, name, format, status, starts_at, ends_at, sponsor_logo_url
+      `SELECT id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage
        FROM tournaments
        WHERE id = $1 AND business_id = $2
        LIMIT 1`,
@@ -208,7 +278,7 @@ tournamentsRouter.get(
       [tournamentId, req.user.business_id],
     )
     const matches = await query(
-      `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, starts_at
+      `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at
        FROM tournament_matches
        WHERE tournament_id = $1 AND business_id = $2
        ORDER BY round_number ASC, id ASC`,
@@ -253,9 +323,11 @@ tournamentsRouter.patch(
            starts_at = COALESCE($4, starts_at),
            ends_at = COALESCE($5, ends_at),
            sponsor_logo_url = COALESCE($6, sponsor_logo_url),
+           home_away_enabled = COALESCE($7, home_away_enabled),
+           home_away_stage = COALESCE($8, home_away_stage),
            updated_at = NOW()
-       WHERE id = $7 AND business_id = $8
-       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, updated_at`,
+       WHERE id = $9 AND business_id = $10
+       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, updated_at`,
       [
         payload.name ?? null,
         payload.format ?? null,
@@ -263,6 +335,8 @@ tournamentsRouter.patch(
         payload.starts_at ?? null,
         payload.ends_at ?? null,
         payload.sponsor_logo_url ?? null,
+        payload.home_away_enabled ?? null,
+        payload.home_away_stage ?? null,
         tournamentId,
         req.user.business_id,
       ],
@@ -270,21 +344,33 @@ tournamentsRouter.patch(
 
     if (!result.rows[0]) throw new HttpError(404, 'Tournament not found')
 
-    if (payload.format) {
+    if (payload.format || Object.prototype.hasOwnProperty.call(payload, 'home_away_enabled') || Object.prototype.hasOwnProperty.call(payload, 'home_away_stage')) {
       await withTransaction(async (client) => {
         const teamsResult = await client.query(
-          `SELECT id, team_name, club_name
-           FROM tournament_teams
-           WHERE tournament_id = $1 AND business_id = $2
-           ORDER BY id ASC`,
+          `SELECT t.id, t.team_name, t.club_name, tr.format, tr.home_away_enabled, tr.home_away_stage
+           FROM tournament_teams t
+           JOIN tournaments tr
+             ON tr.id = t.tournament_id
+            AND tr.business_id = t.business_id
+           WHERE t.tournament_id = $1 AND t.business_id = $2
+           ORDER BY t.id ASC`,
           [tournamentId, req.user.business_id],
         )
         if (teamsResult.rows.length >= 2) {
+          const base = teamsResult.rows[0]
           await regenerateMatches(client, {
             businessId: req.user.business_id,
             tournamentId,
-            format: payload.format,
-            teams: teamsResult.rows,
+            format: payload.format || base.format,
+            homeAwayEnabled:
+              Object.prototype.hasOwnProperty.call(payload, 'home_away_enabled') ? Boolean(payload.home_away_enabled) : Boolean(base.home_away_enabled),
+            homeAwayStage:
+              Object.prototype.hasOwnProperty.call(payload, 'home_away_stage') ? payload.home_away_stage : base.home_away_stage,
+            teams: teamsResult.rows.map((row) => ({
+              id: row.id,
+              team_name: row.team_name,
+              club_name: row.club_name,
+            })),
           })
         }
       })
@@ -320,7 +406,7 @@ tournamentsRouter.put(
 
     const updated = await withTransaction(async (client) => {
       const tournamentResult = await client.query(
-        `SELECT id, format
+        `SELECT id, format, home_away_enabled, home_away_stage
          FROM tournaments
          WHERE id = $1 AND business_id = $2
          LIMIT 1`,
@@ -353,6 +439,8 @@ tournamentsRouter.put(
         businessId: req.user.business_id,
         tournamentId,
         format: tournament.format,
+        homeAwayEnabled: Boolean(tournament.home_away_enabled),
+        homeAwayStage: tournament.home_away_stage ?? null,
         teams,
       })
 
@@ -389,7 +477,7 @@ tournamentsRouter.post(
       `UPDATE tournaments
        SET status = 'scheduled', updated_at = NOW()
        WHERE id = $1 AND business_id = $2
-       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, updated_at`,
+       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, updated_at`,
       [tournamentId, req.user.business_id],
     )
 
@@ -438,7 +526,7 @@ tournamentsRouter.patch(
       }
 
       const refreshed = await client.query(
-        `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, starts_at
+        `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at
          FROM tournament_matches
          WHERE id = ANY($1::bigint[])
            AND tournament_id = $2
@@ -475,7 +563,7 @@ tournamentsRouter.patch(
        WHERE id = $5
          AND tournament_id = $6
          AND business_id = $7
-       RETURNING id, home_team_id, away_team_id, home_score, away_score, status, round_number, starts_at`,
+       RETURNING id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at`,
       [
         payload.home_score ?? null,
         payload.away_score ?? null,

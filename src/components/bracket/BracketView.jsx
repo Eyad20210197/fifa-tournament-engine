@@ -111,7 +111,7 @@ function isUpcomingMatch(status) {
 function formatKickoffDateTime(match) {
   const raw = match?.startsAt || match?.starts_at
   if (!raw) return 'TBD'
-  const date = new Date(raw)
+  const date = parseDbDateTime(raw)
   if (Number.isNaN(date.getTime())) return 'TBD'
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -120,4 +120,14 @@ function formatKickoffDateTime(match) {
     minute: '2-digit',
     hour12: true,
   }).format(date)
+}
+
+function parseDbDateTime(value) {
+  const text = String(value || '').trim()
+  if (!text) return new Date(NaN)
+  const normalized = text
+    .replace(' ', 'T')
+    .replace(/\+00$/, '+00:00')
+    .replace(/\+(\d{2})$/, '+$1:00')
+  return new Date(normalized)
 }

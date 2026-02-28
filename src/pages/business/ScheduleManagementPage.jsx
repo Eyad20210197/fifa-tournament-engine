@@ -997,9 +997,11 @@ export default function ScheduleManagementPage() {
             <thead className="bg-white/5 text-[var(--text-secondary)]">
               <tr>
                 {isAdmin ? <th className="px-4 py-3">Select</th> : null}
-                <th className="px-4 py-3">المرحلة</th>
+                <th className="px-4 py-3">Stage</th>
                 <th className="px-4 py-3">Match</th>
-                <th className="px-4 py-3">Start time</th>
+                <th className="px-4 py-3 text-left" dir="ltr">
+                  Start time
+                </th>
                 {isAdmin ? <th className="px-4 py-3">Action</th> : null}
               </tr>
             </thead>
@@ -1024,11 +1026,12 @@ export default function ScheduleManagementPage() {
                     <td className="px-4 py-3">
                       {(teamNameById.get(Number(match.home_team_id)) || '---') + ' vs ' + (teamNameById.get(Number(match.away_team_id)) || '---')}
                     </td>
-                    <td className="px-4 py-3 text-[var(--text-secondary)]">
+                    <td className="px-4 py-3 text-left text-[var(--text-secondary)]" dir="ltr">
                       {isAdmin ? (
                         <input
                           type="datetime-local"
-                          className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2"
+                          className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-left"
+                          dir="ltr"
                           value={matchTimes[match.id] || ''}
                           onChange={(event) => setMatchTimes((state) => ({ ...state, [match.id]: event.target.value }))}
                         />

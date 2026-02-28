@@ -19,6 +19,7 @@ const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
 const MAX_TEAMS = 128
 const KNOCKOUT_STAGE_OPTIONS = [
+  { value: 'all', label: 'كل المراحل' },
   { value: 'final', label: 'النهائي' },
   { value: 'semi_final', label: 'نصف النهائي' },
   { value: 'quarter_final', label: 'ربع النهائي' },
@@ -112,7 +113,7 @@ export default function ScheduleManagementPage() {
     starts_at: '',
     sponsor_logo_url: '',
     home_away_enabled: false,
-    home_away_stage: 'league',
+    home_away_stages: ['league'],
   })
   const [settings, setSettings] = useState({
     name: '',
@@ -122,7 +123,7 @@ export default function ScheduleManagementPage() {
     ends_at: '',
     sponsor_logo_url: '',
     home_away_enabled: false,
-    home_away_stage: 'league',
+    home_away_stages: ['league'],
   })
   const [financial, setFinancial] = useState({
     entry_fee: '',
@@ -166,7 +167,14 @@ export default function ScheduleManagementPage() {
       ends_at: toLocalDateTime(data?.ends_at),
       sponsor_logo_url: data?.sponsor_logo_url || '',
       home_away_enabled: Boolean(data?.home_away_enabled),
-      home_away_stage: data?.home_away_stage || (data?.format === 'دوري' ? 'league' : 'final'),
+      home_away_stages:
+        Array.isArray(data?.home_away_stages) && data.home_away_stages.length
+          ? data.home_away_stages
+          : data?.home_away_stage
+            ? [data.home_away_stage]
+            : data?.format === 'دوري'
+              ? ['league']
+              : [],
     })
     setFinancial({
       entry_fee: String(financialData?.entry_fee ?? ''),
@@ -267,7 +275,7 @@ export default function ScheduleManagementPage() {
         starts_at: createForm.starts_at || null,
         sponsor_logo_url: createForm.sponsor_logo_url.trim() || null,
         home_away_enabled: Boolean(createForm.home_away_enabled),
-        home_away_stage: createForm.home_away_enabled ? createForm.home_away_stage : null,
+        home_away_stages: createForm.home_away_enabled ? createForm.home_away_stages : [],
         teams: [],
       })
       await loadTournaments()
@@ -278,7 +286,7 @@ export default function ScheduleManagementPage() {
         starts_at: '',
         sponsor_logo_url: '',
         home_away_enabled: false,
-        home_away_stage: createForm.format === 'دوري' ? 'league' : 'final',
+        home_away_stages: createForm.format === 'دوري' ? ['league'] : [],
       })
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to create tournament')
@@ -322,7 +330,7 @@ export default function ScheduleManagementPage() {
         ends_at: settings.ends_at || null,
         sponsor_logo_url: settings.sponsor_logo_url.trim() || null,
         home_away_enabled: Boolean(settings.home_away_enabled),
-        home_away_stage: settings.home_away_enabled ? settings.home_away_stage : null,
+        home_away_stages: settings.home_away_enabled ? settings.home_away_stages : [],
       })
       await loadTournaments()
       await loadDetails(selectedTournamentId)
@@ -465,7 +473,7 @@ export default function ScheduleManagementPage() {
                 setCreateForm((s) => ({
                   ...s,
                   format: event.target.value,
-                  home_away_stage: event.target.value === 'دوري' ? 'league' : 'final',
+                  home_away_stages: event.target.value === 'دوري' ? ['league'] : [],
                 }))
               }
             >
@@ -491,24 +499,39 @@ export default function ScheduleManagementPage() {
                   setCreateForm((s) => ({
                     ...s,
                     home_away_enabled: event.target.checked,
-                    home_away_stage: s.format === 'دوري' ? 'league' : s.home_away_stage || 'final',
+                    home_away_stages: s.format === 'دوري' ? ['league'] : s.home_away_stages || [],
                   }))
                 }
               />
               ذهاب وإياب
             </label>
-            <select
-              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 disabled:opacity-50"
-              disabled={!createForm.home_away_enabled}
-              value={createForm.home_away_stage}
-              onChange={(event) => setCreateForm((s) => ({ ...s, home_away_stage: event.target.value }))}
-            >
-              {(createForm.format === 'دوري' ? [{ value: 'league', label: 'مرحلة الدوري' }] : KNOCKOUT_STAGE_OPTIONS).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            {createForm.format === 'دوري' ? (
+              <p className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm text-[var(--text-secondary)]">مرحلة الدوري</p>
+            ) : (
+              <div className="grid gap-2 md:col-span-2">
+                {KNOCKOUT_STAGE_OPTIONS.map((option) => {
+                  const checked = createForm.home_away_stages.includes(option.value)
+                  return (
+                    <label key={option.value} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!createForm.home_away_enabled}
+                        onChange={(event) =>
+                          setCreateForm((s) => {
+                            const next = new Set(s.home_away_stages || [])
+                            if (event.target.checked) next.add(option.value)
+                            else next.delete(option.value)
+                            return { ...s, home_away_stages: [...next] }
+                          })
+                        }
+                      />
+                      {option.label}
+                    </label>
+                  )
+                })}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -571,7 +594,7 @@ export default function ScheduleManagementPage() {
                   setSettings((s) => ({
                     ...s,
                     format: event.target.value,
-                    home_away_stage: event.target.value === 'دوري' ? 'league' : 'final',
+                    home_away_stages: event.target.value === 'دوري' ? ['league'] : [],
                   }))
                 }
               >
@@ -614,24 +637,39 @@ export default function ScheduleManagementPage() {
                     setSettings((s) => ({
                       ...s,
                       home_away_enabled: event.target.checked,
-                      home_away_stage: s.format === 'دوري' ? 'league' : s.home_away_stage || 'final',
+                      home_away_stages: s.format === 'دوري' ? ['league'] : s.home_away_stages || [],
                     }))
                   }
                 />
                 ذهاب وإياب
               </label>
-              <select
-                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 disabled:opacity-50"
-                disabled={!settings.home_away_enabled}
-                value={settings.home_away_stage}
-                onChange={(event) => setSettings((s) => ({ ...s, home_away_stage: event.target.value }))}
-              >
-                {(settings.format === 'دوري' ? [{ value: 'league', label: 'مرحلة الدوري' }] : KNOCKOUT_STAGE_OPTIONS).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              {settings.format === 'دوري' ? (
+                <p className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm text-[var(--text-secondary)]">مرحلة الدوري</p>
+              ) : (
+                <div className="grid gap-2 md:col-span-2">
+                  {KNOCKOUT_STAGE_OPTIONS.map((option) => {
+                    const checked = settings.home_away_stages.includes(option.value)
+                    return (
+                      <label key={option.value} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!settings.home_away_enabled}
+                          onChange={(event) =>
+                            setSettings((s) => {
+                              const next = new Set(s.home_away_stages || [])
+                              if (event.target.checked) next.add(option.value)
+                              else next.delete(option.value)
+                              return { ...s, home_away_stages: [...next] }
+                            })
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button

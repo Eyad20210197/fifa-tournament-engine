@@ -30,7 +30,7 @@ function initialDraft(savedDraft) {
       starts_at: '',
       sponsor_logo_url: '',
       home_away_enabled: false,
-      home_away_stage: 'league',
+      home_away_stages: ['league'],
       teams: [emptyTeam(), emptyTeam()],
       financial: {
         entry_fee: '',
@@ -44,6 +44,7 @@ function initialDraft(savedDraft) {
 }
 
 const KNOCKOUT_STAGE_OPTIONS = [
+  { value: 'all', label: 'كل المراحل' },
   { value: 'final', label: 'النهائي' },
   { value: 'semi_final', label: 'نصف النهائي' },
   { value: 'quarter_final', label: 'ربع النهائي' },
@@ -124,7 +125,7 @@ export default function TournamentWizardPage() {
         starts_at: draft.starts_at || null,
         sponsor_logo_url: draft.sponsor_logo_url || null,
         home_away_enabled: Boolean(draft.home_away_enabled),
-        home_away_stage: draft.home_away_enabled ? draft.home_away_stage : null,
+        home_away_stages: draft.home_away_enabled ? draft.home_away_stages : [],
         teams: validTeams,
       })
 
@@ -172,7 +173,7 @@ export default function TournamentWizardPage() {
         starts_at: draft.starts_at || null,
         sponsor_logo_url: draft.sponsor_logo_url || null,
         home_away_enabled: Boolean(draft.home_away_enabled),
-        home_away_stage: draft.home_away_enabled ? draft.home_away_stage : null,
+        home_away_stages: draft.home_away_enabled ? draft.home_away_stages : [],
         teams: validTeams,
       })
 
@@ -259,7 +260,7 @@ export default function TournamentWizardPage() {
                 setDraft((state) => ({
                   ...state,
                   format: event.target.value,
-                  home_away_stage: event.target.value === 'دوري' ? 'league' : 'final',
+                  home_away_stages: event.target.value === 'دوري' ? ['league'] : [],
                 }))
               }
             >
@@ -285,24 +286,41 @@ export default function TournamentWizardPage() {
                   setDraft((state) => ({
                     ...state,
                     home_away_enabled: event.target.checked,
-                    home_away_stage: state.format === 'دوري' ? 'league' : state.home_away_stage || 'final',
+                    home_away_stages: state.format === 'دوري' ? ['league'] : state.home_away_stages || [],
                   }))
                 }
               />
               ذهاب وإياب
             </label>
-            <select
-              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 disabled:opacity-50"
-              disabled={!draft.home_away_enabled}
-              value={draft.home_away_stage}
-              onChange={(event) => setDraft((state) => ({ ...state, home_away_stage: event.target.value }))}
-            >
-              {(draft.format === 'دوري' ? [{ value: 'league', label: 'مرحلة الدوري' }] : KNOCKOUT_STAGE_OPTIONS).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            {draft.format === 'دوري' ? (
+              <p className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm text-[var(--text-secondary)]">
+                مرحلة الدوري
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:col-span-2">
+                {KNOCKOUT_STAGE_OPTIONS.map((option) => {
+                  const selected = draft.home_away_stages.includes(option.value)
+                  return (
+                    <label key={option.value} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={!draft.home_away_enabled}
+                        onChange={(event) =>
+                          setDraft((state) => {
+                            const prev = new Set(state.home_away_stages || [])
+                            if (event.target.checked) prev.add(option.value)
+                            else prev.delete(option.value)
+                            return { ...state, home_away_stages: [...prev] }
+                          })
+                        }
+                      />
+                      {option.label}
+                    </label>
+                  )
+                })}
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -394,7 +412,7 @@ export default function TournamentWizardPage() {
             <p>عدد الفرق: {formatArabicNumber(validTeams.length)}</p>
             <p>موعد البداية: {draft.starts_at || '--'}</p>
             <p>شعار الراعي: {draft.sponsor_logo_url || '--'}</p>
-            <p>ذهاب/إياب: {draft.home_away_enabled ? `نعم (${draft.home_away_stage || '--'})` : 'لا'}</p>
+            <p>ذهاب/إياب: {draft.home_away_enabled ? `نعم (${(draft.home_away_stages || []).join(', ') || '--'})` : 'لا'}</p>
           </div>
         ) : null}
       </div>

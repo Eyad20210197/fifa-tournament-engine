@@ -8,6 +8,7 @@ import { ROLES } from './auth/roles'
 
 const Display = lazy(() => import('./pages/Display'))
 const Control = lazy(() => import('./pages/Control'))
+const AblyTest = lazy(() => import('./pages/AblyTest'))
 
 export default function App() {
   return (
@@ -44,6 +45,16 @@ export default function App() {
                 <ProtectedRoute>
                   <RoleGuard allowedRoles={[ROLES.STAFF, ROLES.ADMIN]}>
                     <Control />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ably-test"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={[ROLES.STAFF, ROLES.ADMIN]}>
+                    <AblyTest />
                   </RoleGuard>
                 </ProtectedRoute>
               }

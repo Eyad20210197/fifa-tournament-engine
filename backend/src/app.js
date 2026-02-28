@@ -11,6 +11,7 @@ import { usersRouter } from './modules/users/users.routes.js'
 import { tournamentsRouter } from './modules/tournaments/tournaments.routes.js'
 import { financeRouter } from './modules/finance/finance.routes.js'
 import { liveStateRouter } from './modules/live-state/live-state.routes.js'
+import { ablyRouter } from './modules/ably/ably.routes.js'
 import { mediaRouter, uploadVideoRouter } from './modules/media/media.routes.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
@@ -31,23 +32,10 @@ const apiLimiter = rateLimit({
 
 app.use('/api', apiLimiter)
 
-const allowedOrigins = new Set(env.allowedOrigins)
+const allowAnyOrigin = env.corsAllowAllOrigins
 
 const corsOptions = {
-  origin(origin, callback) {
-    // Allow server-to-server requests with no browser Origin header.
-    if (!origin) {
-      return callback(null, true)
-    }
-
-    if (allowedOrigins.has(origin)) {
-      return callback(null, true)
-    }
-
-    const corsError = new Error('CORS origin denied')
-    corsError.status = 403
-    return callback(corsError)
-  },
+  origin: allowAnyOrigin ? true : false,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -73,6 +61,8 @@ app.use('/api/users', usersRouter)
 app.use('/api/tournaments', tournamentsRouter)
 app.use('/api/finance', financeRouter)
 app.use('/api/live-state', liveStateRouter)
+app.use('/api/ably', ablyRouter)
+app.use('/ably', ablyRouter)
 app.use('/api/media', mediaRouter)
 app.use('/api', uploadVideoRouter)
 

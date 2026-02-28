@@ -2,29 +2,12 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-const DEFAULT_PROD_ORIGIN = 'https://fifa-ramadan-tournament-2026.vercel.app'
-
-function parseAllowedOrigins() {
-  const raw = process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN || ''
-  const origins = raw
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-
-  const frontendUrl = String(process.env.FRONTEND_URL || '').trim()
-  if (frontendUrl) {
-    origins.push(frontendUrl)
-  }
-
-  if (origins.length > 0) {
-    return [...new Set(origins)]
-  }
-
-  if (process.env.NODE_ENV === 'production') {
-    return [DEFAULT_PROD_ORIGIN]
-  }
-
-  return []
+function parseBoolean(value, fallback = false) {
+  if (value == null || value === '') return fallback
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
 }
 
 export const env = {
@@ -34,8 +17,9 @@ export const env = {
   databaseUrl: process.env.DATABASE_URL || '',
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
-  frontendUrl: String(process.env.FRONTEND_URL || '').trim(),
-  allowedOrigins: parseAllowedOrigins(),
+  corsAllowAllOrigins: parseBoolean(process.env.CORS_ALLOW_ALL_ORIGINS, true),
+  ablyApiKey: String(process.env.ABLY_API_KEY || '').trim(),
+  ablyTokenTtlMs: Number(process.env.ABLY_TOKEN_TTL_MS || 60 * 60 * 1000),
   mediaVideosDir: String(process.env.MEDIA_VIDEOS_DIR || '/var/www/tournament/media/videos').trim(),
 }
 
@@ -58,6 +42,6 @@ if (!env.baseUrl && env.nodeEnv === 'production') {
   throw new Error('BASE_URL is required in production')
 }
 
-if (env.nodeEnv === 'production' && env.allowedOrigins.length === 0) {
-  throw new Error('Set ALLOWED_ORIGINS in production')
+if (!env.ablyApiKey) {
+  throw new Error('ABLY_API_KEY is required')
 }

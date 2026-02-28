@@ -78,7 +78,7 @@ export function BracketView() {
               <div className="text-center">
                 <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
                   {isUpcomingMatch(match.status)
-                    ? formatKickoffDateTime(match)
+                    ? 'VS'
                     : `${formatArabicNumber(match.homeScore ?? 0)} : ${formatArabicNumber(match.awayScore ?? 0)}`}
                 </p>
                 <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{match.legNumber === 2 ? 'إياب' : 'ذهاب'}</p>
@@ -106,28 +106,4 @@ function statusLabel(status) {
 
 function isUpcomingMatch(status) {
   return String(status || '').toLowerCase() === 'pending'
-}
-
-function formatKickoffDateTime(match) {
-  const raw = match?.startsAt || match?.starts_at
-  if (!raw) return 'TBD'
-  const date = parseDbDateTime(raw)
-  if (Number.isNaN(date.getTime())) return 'TBD'
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).format(date)
-}
-
-function parseDbDateTime(value) {
-  const text = String(value || '').trim()
-  if (!text) return new Date(NaN)
-  const normalized = text
-    .replace(' ', 'T')
-    .replace(/\+00$/, '+00:00')
-    .replace(/\+(\d{2})$/, '+$1:00')
-  return new Date(normalized)
 }

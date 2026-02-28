@@ -31,8 +31,10 @@ const apiLimiter = rateLimit({
 
 app.use('/api', apiLimiter)
 
+const allowAnyOrigin = env.corsAllowAllOrigins
+
 const corsOptions = {
-  origin: true, // Allow all origins
+  origin: allowAnyOrigin ? true : false,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

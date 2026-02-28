@@ -1,6 +1,10 @@
-﻿import { useMemo } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useMemo } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { formatArabicNumber } from '../../utils/format'
+import { useSwipePages } from '../../hooks/useSwipePages'
+
+const ROWS_PER_PAGE = 4
 
 export function ScheduleList() {
   const matches = useTournamentStore((s) => s.matches)
@@ -14,67 +18,54 @@ export function ScheduleList() {
     return list
   }, [matches])
 
-  return (
-    <div className="h-full rounded-3xl border border-white/10 bg-black/20 p-[2vw]">
-      <h2 className="mb-4 text-[clamp(1.2rem,2.3vw,3rem)] font-semibold">جدول المباريات</h2>
+  const { page, pageIndex, pages, swipeHandlers } = useSwipePages(sorted, ROWS_PER_PAGE, 11000)
 
-      <div className="h-[72vh] overflow-auto rounded-2xl border border-white/10 bg-black/25">
-        <table className="min-w-full text-right text-[clamp(0.82rem,1.05vw,1.3rem)]">
-          <thead className="sticky top-0 bg-[#10213a] text-[var(--text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">المباراة</th>
-              <th className="px-4 py-3">الحالة</th>
-              <th className="px-4 py-3">النتيجة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length ? (
-              sorted.map((match) => (
-                <tr
-                  key={match.id}
-                  className={['border-t border-white/10', match.id === liveMatchId ? 'bg-[var(--primary-color)]/10' : ''].join(' ')}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <TeamName team={teamById.get(match.homeTeamId)} />
-                      <span className="text-[var(--text-secondary)]">ضد</span>
-                      <TeamName team={teamById.get(match.awayTeamId)} reverse />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{statusArabic(match.status)}</td>
-                  <td className="px-4 py-3 font-semibold text-[var(--secondary-color)]">
-                    {formatArabicNumber(match.homeScore ?? 0)} - {formatArabicNumber(match.awayScore ?? 0)}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td className="px-4 py-10 text-center text-[var(--text-secondary)]" colSpan={3}>
-                  لا توجد مباريات حاليا.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+  return (
+    <section className="flex h-full flex-col gap-3 overflow-hidden px-2 py-2" {...swipeHandlers}>
+      <h2 className="shrink-0 text-center font-headline text-[clamp(1.6rem,3.4vw,4rem)] font-semibold">جدول المباريات</h2>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={pageIndex}
+          initial={{ x: 100, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: -100, opacity: 0 }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+          className="grid min-h-0 flex-1 auto-rows-fr gap-3"
+        >
+          {page.map((match) => (
+            <article
+              key={match.id}
+              className={[
+                'grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border px-4 py-4',
+                match.id === liveMatchId ? 'border-[var(--primary-color)]/45 bg-[var(--primary-color)]/12' : 'border-white/10 bg-black/20',
+              ].join(' ')}
+            >
+              <p className="truncate text-right font-headline text-[clamp(1.4rem,2.8vw,3.4rem)]">{teamById.get(match.homeTeamId)?.teamName || '--'}</p>
+              <div className="flex flex-col items-center gap-0.5 text-center">
+                <p className="font-latin text-[clamp(1.6rem,3.4vw,4rem)] text-[var(--secondary-color)]">
+                  {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
+                </p>
+                <p className="font-headline text-[clamp(0.85rem,1.2vw,1.4rem)] text-white/75">{statusLabel(match.status)}</p>
+                <p className="font-latin text-[clamp(0.75rem,0.95vw,1.1rem)] text-white/50">#{formatArabicNumber(match.order ?? 0)}</p>
+              </div>
+              <p className="truncate text-left font-headline text-[clamp(1.4rem,2.8vw,3.4rem)]">{teamById.get(match.awayTeamId)?.teamName || '--'}</p>
+            </article>
+          ))}
+        </motion.div>
+      </AnimatePresence>
+
+      {pages.length > 1 ? <p className="shrink-0 text-center font-latin text-xs text-white/60">{pageIndex + 1} / {pages.length}</p> : null}
+    </section>
   )
 }
 
-function TeamName({ team, reverse = false }) {
-  return (
-    <div className={['flex min-w-0 items-center gap-2', reverse ? 'flex-row-reverse' : ''].join(' ')}>
-      <span className="grid h-8 w-8 flex-none place-items-center overflow-hidden rounded-xl border border-white/10 bg-white/5">
-        {team?.logo ? <img alt="" src={team.logo} className="h-full w-full object-cover" /> : <span>⚽</span>}
-      </span>
-      <span className="truncate">{team?.teamName || '--'}</span>
-    </div>
-  )
-}
-
-function statusArabic(status) {
-  if (status === 'pending') return 'لم تبدأ'
-  if (status === 'live') return 'مباشر'
-  if (status === 'finished') return 'انتهت'
-  return '--'
+function statusLabel(status) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'pending') return 'Upcoming'
+  if (value === 'live') return 'Live'
+  if (value === 'finished' || value === 'ended') return 'Ended'
+  if (value === 'et' || value === 'extra_time') return 'ET'
+  if (value === 'penalties' || value === 'pens') return 'Penalties'
+  return 'Live'
 }

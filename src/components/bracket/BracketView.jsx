@@ -1,83 +1,99 @@
-﻿import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { formatArabicNumber } from '../../utils/format'
+import { useSwipePages } from '../../hooks/useSwipePages'
+
+const MATCHES_PER_PAGE = 4
 
 export function BracketView() {
   const matches = useTournamentStore((s) => s.matches)
   const teams = useTournamentStore((s) => s.teams)
 
-  const { rounds, nameById } = useMemo(() => {
-    const nameMap = new Map(teams.map((team) => [team.id, team.teamName]))
-    const knockoutMatches = matches.filter((item) => item.mode === 'knockout').slice()
-    knockoutMatches.sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.order ?? 0) - (b.order ?? 0))
+  const roundPages = useMemo(() => {
+    const nameById = new Map(teams.map((team) => [team.id, team.teamName]))
+    const knockout = matches.filter((item) => item.mode === 'knockout').slice()
+    knockout.sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.order ?? 0) - (b.order ?? 0))
 
     const grouped = new Map()
-    for (const match of knockoutMatches) {
-      const round = match.round ?? 1
-      if (!grouped.has(round)) grouped.set(round, [])
-      grouped.get(round).push(match)
+    for (const match of knockout) {
+      const roundNumber = Number(match.round ?? 1)
+      if (!grouped.has(roundNumber)) grouped.set(roundNumber, [])
+      grouped.get(roundNumber).push({
+        ...match,
+        homeName: nameById.get(match.homeTeamId) || '--',
+        awayName: nameById.get(match.awayTeamId) || '--',
+      })
     }
 
-    return {
-      rounds: [...grouped.entries()].sort((a, b) => a[0] - b[0]),
-      nameById: (id) => (id ? nameMap.get(id) || '--' : '--'),
+    const pages = []
+    for (const [roundNumber, roundMatches] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
+      const totalParts = Math.ceil(roundMatches.length / MATCHES_PER_PAGE) || 1
+      for (let i = 0; i < roundMatches.length; i += MATCHES_PER_PAGE) {
+        pages.push({
+          roundNumber,
+          partIndex: Math.floor(i / MATCHES_PER_PAGE) + 1,
+          totalParts,
+          matches: roundMatches.slice(i, i + MATCHES_PER_PAGE),
+        })
+      }
     }
+    return pages
   }, [matches, teams])
 
-  return (
-    <div className="h-full rounded-3xl border border-white/10 bg-black/20 p-[2vw]">
-      <h2 className="mb-4 text-[clamp(1.2rem,2.3vw,3rem)] font-semibold">شجرة البطولة</h2>
+  const { page, pageIndex, pages, swipeHandlers } = useSwipePages(roundPages, 1, 12000)
+  const active = page[0] || null
 
-      {rounds.length ? (
-        <div className="flex h-[72vh] gap-3 overflow-auto pb-2 md:flex-row flex-col">
-          {rounds.map(([roundNumber, roundMatches], roundIndex) => (
-            <section key={roundNumber} className="min-w-[260px] flex-1 rounded-2xl border border-white/10 bg-black/25 p-3">
-              <h3 className="mb-3 text-sm text-[var(--text-secondary)]">الدور {formatArabicNumber(roundNumber)}</h3>
-              <div className="space-y-3">
-                {roundMatches.map((match) => (
-                  <MatchCard
-                    key={match.id}
-                    match={match}
-                    nameById={nameById}
-                    highlight={roundIndex === rounds.length - 1}
-                  />
-                ))}
+  if (!active) {
+    return (
+      <section className="grid h-full place-items-center overflow-hidden">
+        <p className="font-headline text-[clamp(1.2rem,2vw,2.2rem)] text-white/65">لا توجد شجرة إقصائية بعد</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="flex h-full flex-col gap-3 overflow-hidden px-2 py-2" {...swipeHandlers}>
+      <h2 className="shrink-0 text-center font-headline text-[clamp(1.6rem,3.4vw,4rem)] font-semibold">شجرة البطولة</h2>
+      <p className="shrink-0 text-center font-headline text-[clamp(1rem,1.8vw,2.2rem)] text-[var(--secondary-color)]">
+        Round {formatArabicNumber(active.roundNumber)}
+        {active.totalParts > 1 ? ` • ${active.partIndex}/${active.totalParts}` : ''}
+      </p>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={pageIndex}
+          initial={{ x: 120, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: -120, opacity: 0 }}
+          transition={{ duration: 0.32, ease: 'easeOut' }}
+          className="grid min-h-0 flex-1 auto-rows-fr gap-3"
+        >
+          {active.matches.map((match) => (
+            <article key={match.id} className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]">
+              <p className="truncate text-right font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.homeName}</p>
+              <div className="text-center">
+                <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
+                  {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
+                </p>
+                <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{statusLabel(match.status)}</p>
               </div>
-            </section>
+              <p className="truncate text-left font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.awayName}</p>
+            </article>
           ))}
-        </div>
-      ) : (
-        <div className="grid h-[60vh] place-items-center rounded-2xl border border-white/10 bg-black/25 text-[var(--text-secondary)]">
-          لا توجد شجرة إقصائية بعد.
-        </div>
-      )}
-    </div>
+        </motion.div>
+      </AnimatePresence>
+
+      {pages.length > 1 ? <p className="shrink-0 text-center font-latin text-xs text-white/60">{pageIndex + 1} / {pages.length}</p> : null}
+    </section>
   )
 }
 
-function MatchCard({ match, nameById, highlight = false }) {
-  const status = match.status === 'finished' ? 'انتهت' : match.status === 'live' ? 'مباشر' : 'لم تبدأ'
-
-  return (
-    <motion.article
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
-      className={[
-        'rounded-2xl border bg-black/35 p-3',
-        highlight ? 'border-[var(--primary-color)]/40' : 'border-white/10',
-      ].join(' ')}
-    >
-      <div className="mb-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
-        <span>{status}</span>
-        <span className="font-semibold text-[var(--secondary-color)]">
-          {formatArabicNumber(match.homeScore ?? 0)} - {formatArabicNumber(match.awayScore ?? 0)}
-        </span>
-      </div>
-      <p className="truncate text-sm font-semibold">{nameById(match.homeTeamId)}</p>
-      <p className="mt-1 truncate text-sm font-semibold">{nameById(match.awayTeamId)}</p>
-    </motion.article>
-  )
+function statusLabel(status) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'live') return 'Live'
+  if (value === 'finished' || value === 'ended') return 'Ended'
+  if (value === 'et' || value === 'extra_time') return 'ET'
+  if (value === 'penalties' || value === 'pens') return 'Penalties'
+  return 'Upcoming'
 }

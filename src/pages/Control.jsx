@@ -7,7 +7,8 @@ import { TeamManager } from '../components/common/TeamManager'
 import { TournamentGenerator } from '../components/common/TournamentGenerator'
 import { SponsorManager } from '../components/common/SponsorManager'
 import { MatchControl } from '../components/common/MatchControl'
-import { connectLiveStateSocket } from '../services/liveStateSocket'
+import { VideoManager } from '../components/common/VideoManager'
+import { acquireLiveStateSocket, releaseLiveStateSocket, subscribeLiveState } from '../services/liveStateSocket'
 import { fetchCurrentLiveState } from '../services/liveStateService'
 import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
 import { useAuth } from '../auth/useAuth'
@@ -41,7 +42,7 @@ function mapDetailsToControlState(details) {
       winnerTeamId: null,
     })),
     sponsor: {
-      logoBase64: details?.sponsor_logo_url || null,
+      urls: details?.sponsor_logo_url ? [details.sponsor_logo_url] : [],
     },
   }
 }
@@ -90,10 +91,27 @@ export default function Control() {
         }
       }
 
-      connectLiveStateSocket()
+      acquireLiveStateSocket()
     }
 
     void bootstrapControl()
+    const unsubscribe = subscribeLiveState((message) => {
+      if (message?.type === 'STATE_UPDATED' && message.payload) {
+        useTournamentStore.getState().applyRemoteState(message.payload)
+        return
+      }
+      if (message?.type === 'MATCH_TIMER_UPDATED' && message.payload) {
+        useTournamentStore.getState().applyMatchTimerUpdate(message.payload)
+        return
+      }
+      if (message?.type === 'MATCH_TIMER_CLEARED' && message.payload?.matchId != null) {
+        useTournamentStore.getState().clearMatchTimerLocal(message.payload.matchId)
+      }
+    })
+    return () => {
+      unsubscribe()
+      releaseLiveStateSocket()
+    }
   }, [])
 
   const screens = useMemo(
@@ -229,6 +247,10 @@ export default function Control() {
                 <div className="lg:col-span-3">
                   <MatchControl />
                 </div>
+              </div>
+
+              <div className="mt-6">
+                <VideoManager />
               </div>
             </>
           ) : (

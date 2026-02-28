@@ -35,6 +35,19 @@ body {
   text-align: right;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Funnel Display', Cairo, 'Noto Sans Arabic', sans-serif;
+}
+
+:lang(en) {
+  font-family: 'Space Grotesk', 'Segoe UI', Tahoma, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -59,6 +72,15 @@ button {
   }
   to {
     transform: translateY(320px);
+  }
+}
+
+@keyframes sponsorTicker {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
   }
 }
 

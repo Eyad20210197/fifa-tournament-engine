@@ -26,6 +26,7 @@ const createBusinessSchema = z.object({
   primary_color: z.string().optional().nullable(),
   secondary_color: z.string().optional().nullable(),
   logo_url: z.string().optional().nullable(),
+  animated_logo_url: z.string().optional().nullable(),
   subscription_expires_at: optionalDateTimeSchema.optional(),
 })
 
@@ -43,7 +44,7 @@ businessesRouter.get(
     }
 
     const result = await query(
-      `SELECT id, name, brand_name, primary_color, secondary_color, logo_url
+      `SELECT id, name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url
        FROM businesses
        WHERE id = $1
        LIMIT 1`,
@@ -59,7 +60,7 @@ businessesRouter.get(
   authorize('SUPER_ADMIN'),
   asyncHandler(async (req, res) => {
     const result = await query(
-      `SELECT id, name, brand_name, primary_color, secondary_color, logo_url,
+      `SELECT id, name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url,
               subscription_expires_at, created_at, updated_at
        FROM businesses
        ORDER BY id DESC`,
@@ -77,15 +78,16 @@ businessesRouter.post(
 
     const payload = parsed.data
     const result = await query(
-      `INSERT INTO businesses (name, brand_name, primary_color, secondary_color, logo_url, subscription_expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, brand_name, primary_color, secondary_color, logo_url, subscription_expires_at, created_at, updated_at`,
+      `INSERT INTO businesses (name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url, subscription_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url, subscription_expires_at, created_at, updated_at`,
       [
         payload.name,
         payload.brand_name || null,
         payload.primary_color || null,
         payload.secondary_color || null,
         payload.logo_url || null,
+        payload.animated_logo_url || null,
         payload.subscription_expires_at || null,
       ],
     )
@@ -120,6 +122,7 @@ businessesRouter.patch(
     pushUpdate('primary_color', 'primary_color')
     pushUpdate('secondary_color', 'secondary_color')
     pushUpdate('logo_url', 'logo_url')
+    pushUpdate('animated_logo_url', 'animated_logo_url')
     pushUpdate('subscription_expires_at', 'subscription_expires_at')
     updates.push('updated_at = NOW()')
 
@@ -128,9 +131,55 @@ businessesRouter.patch(
       `UPDATE businesses
        SET ${updates.join(', ')}
        WHERE id = $${params.length}
-       RETURNING id, name, brand_name, primary_color, secondary_color, logo_url, subscription_expires_at, created_at, updated_at`,
+       RETURNING id, name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url, subscription_expires_at, created_at, updated_at`,
       params,
     )
+    if (!result.rows[0]) throw new HttpError(404, 'Business not found')
+    return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
+businessesRouter.patch(
+  '/branding',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const businessId = Number(req.user?.business_id)
+    if (!businessId) throw new HttpError(400, 'Business not found for current user')
+
+    const parsed = z
+      .object({
+        brand_name: z.string().optional().nullable(),
+        primary_color: z.string().optional().nullable(),
+        secondary_color: z.string().optional().nullable(),
+        logo_url: z.string().optional().nullable(),
+        animated_logo_url: z.string().optional().nullable(),
+      })
+      .safeParse(req.body || {})
+
+    if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
+    const payload = parsed.data
+    if (Object.keys(payload).length === 0) throw new HttpError(400, 'No fields to update')
+
+    const result = await query(
+      `UPDATE businesses
+       SET brand_name = COALESCE($1, brand_name),
+           primary_color = COALESCE($2, primary_color),
+           secondary_color = COALESCE($3, secondary_color),
+           logo_url = COALESCE($4, logo_url),
+           animated_logo_url = COALESCE($5, animated_logo_url),
+           updated_at = NOW()
+       WHERE id = $6
+       RETURNING id, name, brand_name, primary_color, secondary_color, logo_url, animated_logo_url, updated_at`,
+      [
+        payload.brand_name ?? null,
+        payload.primary_color ?? null,
+        payload.secondary_color ?? null,
+        payload.logo_url ?? null,
+        payload.animated_logo_url ?? null,
+        businessId,
+      ],
+    )
+
     if (!result.rows[0]) throw new HttpError(404, 'Business not found')
     return res.json({ success: true, data: result.rows[0] })
   }),

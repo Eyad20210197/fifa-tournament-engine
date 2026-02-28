@@ -29,6 +29,14 @@ Run SQL files in order:
 1. `migrations/001_init.sql`
 2. `migrations/002_seed.sql`
 3. `migrations/003_live_state.sql`
+4. `migrations/004_fix_seed_admin_password.sql`
+5. `migrations/005_tournament_sponsor_logo.sql`
+6. `migrations/006_media_assets.sql`
+7. `migrations/007_business_animated_logo.sql`
+
+Also set:
+
+- `MEDIA_VIDEOS_DIR=/var/www/tournament/media/videos`
 
 ## 4. Start API
 

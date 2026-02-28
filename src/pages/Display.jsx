@@ -1,5 +1,5 @@
-﻿import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useState } from 'react'
 import { RamadanStage } from '../components/common/RamadanStage'
 import { useTournamentStore } from '../store/tournamentStore'
 import { OpeningScreen } from '../components/live/OpeningScreen'
@@ -7,9 +7,15 @@ import { LiveMatchScreen } from '../components/live/LiveMatchScreen'
 import { StandingsTable } from '../components/standings/StandingsTable'
 import { BracketView } from '../components/bracket/BracketView'
 import { ScheduleList } from '../components/schedule/ScheduleList'
-import { connectLiveStateSocket, subscribeLiveState } from '../services/liveStateSocket'
+import {
+  acquireLiveStateSocket,
+  releaseLiveStateSocket,
+  subscribeLiveState,
+  subscribeLiveStateConnectionStatus,
+} from '../services/liveStateSocket'
 import { fetchCurrentLiveState } from '../services/liveStateService'
 import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
+import { useAuth } from '../auth/useAuth'
 
 const labels = {
   opening: 'الافتتاح',
@@ -47,7 +53,7 @@ function mapDetailsToDisplayState(details) {
       winnerTeamId: null,
     })),
     sponsor: {
-      logoBase64: details?.sponsor_logo_url || null,
+      urls: details?.sponsor_logo_url ? [details.sponsor_logo_url] : [],
     },
   }
 }
@@ -56,8 +62,17 @@ export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
   const tournament = useTournamentStore((s) => s.tournament)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
+  const { branding } = useAuth()
+  const [connectionStatus, setConnectionStatus] = useState('connecting')
 
   useEffect(() => {
+    const { style: htmlStyle } = document.documentElement
+    const { style: bodyStyle } = document.body
+    const prevHtmlOverflow = htmlStyle.overflow
+    const prevBodyOverflow = bodyStyle.overflow
+    htmlStyle.overflow = 'hidden'
+    bodyStyle.overflow = 'hidden'
+
     void fetchCurrentLiveState()
       .then(async (snapshot) => {
         const snapshotLooksIncomplete =
@@ -92,34 +107,61 @@ export default function Display() {
         }))
       })
 
-    connectLiveStateSocket()
-    return subscribeLiveState((message) => {
+    acquireLiveStateSocket()
+    const unsubscribe = subscribeLiveState((message) => {
       if (message?.type === 'STATE_UPDATED' && message.payload) {
         useTournamentStore.getState().applyRemoteState(message.payload)
+        return
+      }
+      if (message?.type === 'MATCH_TIMER_UPDATED' && message.payload) {
+        useTournamentStore.getState().applyMatchTimerUpdate(message.payload)
+        return
+      }
+      if (message?.type === 'MATCH_TIMER_CLEARED' && message.payload?.matchId != null) {
+        useTournamentStore.getState().clearMatchTimerLocal(message.payload.matchId)
       }
     })
+    const unsubscribeStatus = subscribeLiveStateConnectionStatus((status) => {
+      setConnectionStatus(status)
+    })
+
+    return () => {
+      unsubscribe()
+      unsubscribeStatus()
+      releaseLiveStateSocket()
+      htmlStyle.overflow = prevHtmlOverflow
+      bodyStyle.overflow = prevBodyOverflow
+    }
   }, [])
 
   return (
     <RamadanStage variant="display">
-      <div className="mx-auto flex min-h-screen w-[95vw] max-w-[2400px] flex-col py-[2vh]">
-        <header className="mb-[2vh] rounded-3xl border border-white/10 bg-black/25 px-[2.2vw] py-[1.2vh] backdrop-blur">
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="text-[clamp(1.3rem,2.2vw,2.8rem)] font-semibold">{tournament?.name || 'البطولة'}</h1>
-            <span className="rounded-full border border-[var(--primary-color)]/45 bg-[var(--primary-color)]/12 px-4 py-2 text-[clamp(0.75rem,1.1vw,1.2rem)] text-[var(--secondary-color)]">
-              {labels[activeScreen] || 'عرض مباشر'}
-            </span>
+      <div className="mx-auto flex h-[100dvh] w-[96vw] max-w-[2400px] flex-col overflow-hidden py-2">
+        <header className="mb-2 shrink-0 rounded-3xl border border-white/10 bg-black/25 px-4 py-2 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <AnimatedHeaderLogo brandingLogoUrl={branding?.animated_logo_url} />
+              <h1 className="truncate text-[clamp(1.1rem,1.8vw,2.2rem)] font-semibold">{tournament?.name || 'البطولة'}</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-[var(--primary-color)]/45 bg-[var(--primary-color)]/12 px-3 py-1 text-[clamp(0.75rem,0.95vw,1rem)] text-[var(--secondary-color)]">
+                {labels[activeScreen] || 'عرض مباشر'}
+              </span>
+              <span className="rounded-full border border-white/20 bg-black/25 px-3 py-1 text-[clamp(0.7rem,0.9vw,0.95rem)] text-white/90">
+                WS: {connectionStatus}
+              </span>
+            </div>
           </div>
         </header>
 
         <AnimatePresence mode="wait">
           <motion.section
             key={activeScreen}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.38, ease: 'easeOut' }}
-            className="flex-1"
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+            className="min-h-0 flex-1 overflow-hidden"
           >
             {!hydrated ? (
               <CenterMessage>جار تحميل شاشة العرض المباشر...</CenterMessage>
@@ -145,8 +187,27 @@ export default function Display() {
 
 function CenterMessage({ children }) {
   return (
-    <div className="grid h-full min-h-[60vh] place-items-center rounded-3xl border border-white/10 bg-black/20 p-8 text-[clamp(1rem,1.7vw,2rem)] text-[var(--text-primary)]">
+    <div className="grid h-full place-items-center rounded-3xl border border-white/10 bg-black/20 p-4 text-[clamp(1rem,1.5vw,1.8rem)] text-[var(--text-primary)]">
       {children}
     </div>
+  )
+}
+
+function AnimatedHeaderLogo({ brandingLogoUrl }) {
+  const logoVideoUrl =
+    String(brandingLogoUrl || '').trim() || String(import.meta.env.VITE_DISPLAY_LOGO_MOV_URL || '').trim()
+  if (!logoVideoUrl) return null
+
+  return (
+    <video
+      src={logoVideoUrl}
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="auto"
+      className="h-[clamp(40px,3.8vw,88px)] w-[clamp(96px,9vw,190px)] object-contain"
+      aria-label="Animated tournament logo"
+    />
   )
 }

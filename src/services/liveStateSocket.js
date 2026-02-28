@@ -1,69 +1,73 @@
-const DEFAULT_SECURE_WS_ENDPOINT = 'wss://fifaleague.duckdns.org/ws/live-state'
-
-function resolveWsEndpoint() {
-  const explicitEndpoint = import.meta.env.NEXT_PUBLIC_WS_URL || import.meta.env.VITE_WS_URL
-  if (explicitEndpoint) {
-    return String(explicitEndpoint).trim()
-  }
-
-  const explicitBase = import.meta.env.VITE_WS_BASE_URL
-  if (explicitBase) {
-    return `${String(explicitBase).trim().replace(/\/+$/, '')}/ws/live-state`
-  }
-
-  const apiBase = import.meta.env.NEXT_PUBLIC_API_URL || import.meta.env.VITE_API_BASE_URL
-  if (apiBase && String(apiBase).startsWith('http')) {
-    return `${String(apiBase)
-      .trim()
-      .replace(/^http/i, 'ws')
-      .replace(/\/api\/?$/, '')
-      .replace(/\/+$/, '')}/ws/live-state`
-  }
-
-  if (window.location.protocol === 'https:') {
-    return DEFAULT_SECURE_WS_ENDPOINT
-  }
-
-  return `ws://${window.location.host}/ws/live-state`
-}
-
-const WS_ENDPOINT = resolveWsEndpoint()
+const MAX_RECONNECT_DELAY_MS = 30000
+const MAX_RECONNECT_ATTEMPTS = 12
 
 let socket = null
 let reconnectTimer = null
 let reconnectAttempts = 0
-const listeners = new Set()
-const MAX_RECONNECT_DELAY_MS = 30000
+let shouldReconnect = false
+let activeConsumers = 0
+let connectionStatus = 'disconnected'
 
-function buildSocketUrl() {
-  const token = localStorage.getItem('saasToken')
-  console.log('[WS] FRONTEND TOKEN LENGTH:', token?.length ?? 0)
-  if (!token || token === 'null' || token === 'undefined') {
-    console.warn('[WS] Missing token, skipping socket connection')
-    return null
-  }
+const messageListeners = new Set()
+const statusListeners = new Set()
 
-  const wsUrl = `${WS_ENDPOINT}?token=${token}`
-  console.log('[WS] WS ENDPOINT:', WS_ENDPOINT)
-  return wsUrl
-}
-
-function notify(message) {
-  for (const listener of listeners) {
+function notifyMessage(message) {
+  for (const listener of messageListeners) {
     listener(message)
   }
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return
+function setConnectionStatus(nextStatus) {
+  if (connectionStatus === nextStatus) return
+  connectionStatus = nextStatus
+  for (const listener of statusListeners) {
+    listener(nextStatus)
+  }
+}
+
+function clearReconnectTimer() {
+  if (!reconnectTimer) return
+  clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
+function getSocketBaseUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${protocol}://${window.location.host}/ws`
+}
+
+function buildSocketUrl() {
+  const token = localStorage.getItem('saasToken')
+  if (!token || token === 'null' || token === 'undefined') {
+    return null
+  }
+
+  const wsUrl = new URL(getSocketBaseUrl())
+  wsUrl.searchParams.set('token', token)
+  return wsUrl.toString()
+}
+
+function nextReconnectDelayMs() {
   const expDelay = Math.min(MAX_RECONNECT_DELAY_MS, 1000 * 2 ** reconnectAttempts)
   const jitter = Math.floor(Math.random() * 500)
-  const delay = expDelay + jitter
+  return expDelay + jitter
+}
+
+function scheduleReconnect() {
+  if (!shouldReconnect || reconnectTimer || activeConsumers === 0) return
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    setConnectionStatus('disconnected')
+    return
+  }
+
+  setConnectionStatus('reconnecting')
+  const delay = nextReconnectDelayMs()
+  reconnectAttempts += 1
+
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     connectLiveStateSocket()
   }, delay)
-  reconnectAttempts += 1
 }
 
 export function connectLiveStateSocket() {
@@ -72,47 +76,83 @@ export function connectLiveStateSocket() {
   }
 
   const wsUrl = buildSocketUrl()
-  if (!wsUrl) return null
+  if (!wsUrl) {
+    setConnectionStatus('disconnected')
+    return null
+  }
 
-  console.log('[WS] CONNECT ATTEMPT')
+  setConnectionStatus(reconnectAttempts > 0 ? 'reconnecting' : 'connecting')
   socket = new WebSocket(wsUrl)
 
   socket.onopen = () => {
-    console.log('[WS] OPEN')
     reconnectAttempts = 0
+    clearReconnectTimer()
+    setConnectionStatus('connected')
   }
 
   socket.onmessage = (event) => {
     try {
       const parsed = JSON.parse(String(event.data || ''))
-      notify(parsed)
+      notifyMessage(parsed)
     } catch {
-      // ignore malformed messages
+      // Ignore malformed payloads from remote clients.
     }
   }
 
-  socket.onclose = (event) => {
-    console.log('[WS] CLOSE', {
-      code: event?.code,
-      reason: event?.reason,
-      wasClean: event?.wasClean,
-    })
-    socket = null
-    scheduleReconnect()
-  }
-
-  socket.onerror = (event) => {
-    console.log('[WS] ERROR EVENT:', event)
+  socket.onerror = () => {
     if (socket && socket.readyState === WebSocket.OPEN) return
     socket?.close()
+  }
+
+  socket.onclose = () => {
+    socket = null
+    setConnectionStatus('disconnected')
+    scheduleReconnect()
   }
 
   return socket
 }
 
+export function disconnectLiveStateSocket() {
+  shouldReconnect = false
+  reconnectAttempts = 0
+  clearReconnectTimer()
+  setConnectionStatus('disconnected')
+
+  if (!socket) return
+  const current = socket
+  socket = null
+  if (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING) {
+    current.close(1000, 'client-disconnect')
+  }
+}
+
+export function acquireLiveStateSocket() {
+  activeConsumers += 1
+  shouldReconnect = true
+  connectLiveStateSocket()
+}
+
+export function releaseLiveStateSocket() {
+  activeConsumers = Math.max(0, activeConsumers - 1)
+  if (activeConsumers === 0) {
+    disconnectLiveStateSocket()
+  }
+}
+
 export function subscribeLiveState(handler) {
-  listeners.add(handler)
-  return () => listeners.delete(handler)
+  messageListeners.add(handler)
+  return () => {
+    messageListeners.delete(handler)
+  }
+}
+
+export function subscribeLiveStateConnectionStatus(handler) {
+  statusListeners.add(handler)
+  handler(connectionStatus)
+  return () => {
+    statusListeners.delete(handler)
+  }
 }
 
 export function publishLiveState(payload) {
@@ -124,4 +164,34 @@ export function publishLiveState(payload) {
     }),
   )
   return true
+}
+
+function sendTimerMessage(type, payload) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  socket.send(JSON.stringify({ type, payload }))
+  return true
+}
+
+export function wsStartMatchTimer(matchId, durationMs) {
+  return sendTimerMessage('MATCH_TIMER_START', { matchId, durationMs })
+}
+
+export function wsPauseMatchTimer(matchId) {
+  return sendTimerMessage('MATCH_TIMER_PAUSE', { matchId })
+}
+
+export function wsResumeMatchTimer(matchId) {
+  return sendTimerMessage('MATCH_TIMER_RESUME', { matchId })
+}
+
+export function wsSetMatchTimerDuration(matchId, durationMs) {
+  return sendTimerMessage('MATCH_TIMER_SET_DURATION', { matchId, durationMs })
+}
+
+export function wsAdjustMatchTimer(matchId, deltaMs) {
+  return sendTimerMessage('MATCH_TIMER_ADJUST', { matchId, deltaMs })
+}
+
+export function wsClearMatchTimer(matchId) {
+  return sendTimerMessage('MATCH_TIMER_CLEAR', { matchId })
 }

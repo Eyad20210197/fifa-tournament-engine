@@ -1,44 +1,39 @@
 import { create } from 'zustand'
 import { generateTournamentData } from '../utils/tournament/generate'
 import { computeStandings } from '../utils/tournament/standings'
-import { publishLiveState } from '../services/liveStateSocket'
+import { publishLiveState, wsAdjustMatchTimer, wsClearMatchTimer, wsPauseMatchTimer, wsResumeMatchTimer, wsSetMatchTimerDuration, wsStartMatchTimer } from '../services/liveStateSocket'
 import { saveCurrentLiveState } from '../services/liveStateService'
 
-function normalizeTimer(timer) {
-  const fallback = {
-    durationMs: 10 * 60 * 1000,
-    running: false,
-    startedAt: null,
-    accumulatedMs: 0,
-  }
-
-  if (!timer || typeof timer !== 'object') return fallback
-
-  // ترقية من نسخة سابقة: remainingMs/lastTickAt
-  if (timer.remainingMs !== undefined) {
-    const durationMs = Number(timer.durationMs ?? fallback.durationMs)
-    const remainingMs = Number(timer.remainingMs ?? durationMs)
-    const accumulatedMs = Math.max(0, durationMs - remainingMs)
-    return { durationMs, running: false, startedAt: null, accumulatedMs }
-  }
-
-  return {
-    durationMs: Number(timer.durationMs ?? fallback.durationMs),
-    running: Boolean(timer.running ?? false),
-    startedAt: timer.startedAt ?? null,
-    accumulatedMs: Number(timer.accumulatedMs ?? 0),
-  }
-}
-
-export function computeRemainingMs(timer, now = Date.now()) {
-  const t = normalizeTimer(timer)
-  const elapsed = t.running && t.startedAt ? t.accumulatedMs + Math.max(0, now - t.startedAt) : t.accumulatedMs
-  return Math.max(0, t.durationMs - elapsed)
-}
+const DEFAULT_TIMER_DURATION_MS = 10 * 60 * 1000
 
 function persistedSlice(state) {
-  const { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState } = state
-  return { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState }
+  const { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState, matchTimers } = state
+  return { tournament, teams, matches, standings, activeScreen, sponsor, liveMatchState, matchTimers }
+}
+
+function normalizeSponsor(sponsorInput) {
+  if (!sponsorInput || typeof sponsorInput !== 'object') return { urls: [] }
+  if (Array.isArray(sponsorInput.urls)) {
+    return { urls: sponsorInput.urls.map((item) => String(item || '').trim()).filter(Boolean) }
+  }
+  const legacyLogo = String(sponsorInput.logoBase64 || '').trim()
+  if (legacyLogo && /^https?:\/\//i.test(legacyLogo)) return { urls: [legacyLogo] }
+  return { urls: [] }
+}
+
+function normalizeMatchTimers(input) {
+  if (!input || typeof input !== 'object') return {}
+  const output = {}
+  for (const [rawMatchId, value] of Object.entries(input)) {
+    const matchId = Number(rawMatchId)
+    if (!Number.isFinite(matchId) || matchId <= 0 || !value || typeof value !== 'object') continue
+    output[matchId] = {
+      remainingMs: Math.max(0, Number(value.remainingMs ?? DEFAULT_TIMER_DURATION_MS)),
+      durationMs: Math.max(1, Number(value.durationMs ?? DEFAULT_TIMER_DURATION_MS)),
+      status: ['running', 'paused', 'finished'].includes(String(value.status)) ? String(value.status) : 'paused',
+    }
+  }
+  return output
 }
 
 function isLikelyIncompleteLiveSnapshot(payload) {
@@ -46,34 +41,23 @@ function isLikelyIncompleteLiveSnapshot(payload) {
   const teamsEmpty = Array.isArray(payload.teams) && payload.teams.length === 0
   const matchesEmpty = Array.isArray(payload.matches) && payload.matches.length === 0
   if (!teamsEmpty && !matchesEmpty) return false
-
   const hasLiveMatch = payload?.liveMatchState?.matchId != null
   const activeScreen = payload?.activeScreen
-  const isActiveScreen = activeScreen && activeScreen !== 'opening'
-  return Boolean(hasLiveMatch || isActiveScreen)
+  return Boolean(hasLiveMatch || (activeScreen && activeScreen !== 'opening'))
 }
 
 function mergedCollections(currentState, payload) {
   const keepExisting = isLikelyIncompleteLiveSnapshot(payload)
   const teams = Array.isArray(payload?.teams) ? (keepExisting && currentState.teams.length > 0 ? currentState.teams : payload.teams) : currentState.teams
-  const matches = Array.isArray(payload?.matches)
-    ? keepExisting && currentState.matches.length > 0
-      ? currentState.matches
-      : payload.matches
-    : currentState.matches
-  const standings = Array.isArray(payload?.standings)
-    ? keepExisting && currentState.standings.length > 0
-      ? currentState.standings
-      : payload.standings
-    : currentState.standings
-
+  const matches = Array.isArray(payload?.matches) ? (keepExisting && currentState.matches.length > 0 ? currentState.matches : payload.matches) : currentState.matches
+  const standings = Array.isArray(payload?.standings) ? (keepExisting && currentState.standings.length > 0 ? currentState.standings : payload.standings) : currentState.standings
   return { teams, matches, standings }
 }
 
 function defaultTournament() {
   return {
     name: 'بطولة رمضان 2026',
-    format: 'دوري', // دوري | خروج مغلوب
+    format: 'دوري',
   }
 }
 
@@ -83,20 +67,15 @@ function defaultState() {
     teams: [],
     matches: [],
     standings: [],
-    activeScreen: 'opening', // opening | live | standings | bracket | schedule
+    activeScreen: 'opening',
     sponsor: {
-      logoBase64: null,
+      urls: [],
     },
     liveMatchState: {
       matchId: null,
-      timer: {
-        durationMs: 10 * 60 * 1000,
-        running: false,
-        startedAt: null,
-        accumulatedMs: 0,
-      },
       goalEvents: [],
     },
+    matchTimers: {},
     _meta: {
       hydrated: true,
       lastSavedAt: null,
@@ -106,27 +85,29 @@ function defaultState() {
   }
 }
 
+function statusForRemaining(remainingMs, statusHint) {
+  if (Number(remainingMs) <= 0) return 'finished'
+  if (statusHint === 'running' || statusHint === 'paused') return statusHint
+  return 'paused'
+}
+
 export const useTournamentStore = create((set, get) => {
   let isApplyingRemote = false
   let commitQueue = Promise.resolve()
 
   async function commit(nextState, { broadcast = true } = {}) {
-    console.log('Committing state:', nextState)
     const snapshot = persistedSlice(nextState)
 
-    // تسلسل الحفظ لتفادي تداخل المعاملات
     commitQueue = commitQueue
       .then(async () => {
         await saveCurrentLiveState(snapshot).catch(() => null)
         set((s) => ({ _meta: { ...s._meta, lastSavedAt: Date.now() } }))
-
-        // بث التحديث بعد نجاح الحفظ فقط لتغذية شاشة العرض الحية عبر WebSocket.
         if (broadcast && !isApplyingRemote) {
           publishLiveState(snapshot)
         }
       })
       .catch((err) => {
-        console.error('فشل حفظ حالة البث على الخادم:', err)
+        console.error('Failed to persist live snapshot:', err)
       })
   }
 
@@ -140,17 +121,39 @@ export const useTournamentStore = create((set, get) => {
     })
   }
 
-  async function hydrate() {
-    set((s) => ({ ...s, _meta: { ...s._meta, hydrated: true } }))
+  function getScopedMatchId(matchId) {
+    if (Number.isFinite(Number(matchId)) && Number(matchId) > 0) return Number(matchId)
+    const selected = Number(get().liveMatchState.matchId)
+    return Number.isFinite(selected) && selected > 0 ? selected : null
+  }
+
+  function updateMatchTimerLocal(matchId, patch) {
+    const id = Number(matchId)
+    if (!Number.isFinite(id) || id <= 0) return
+    set((state) => {
+      const current = state.matchTimers[id] || {
+        remainingMs: DEFAULT_TIMER_DURATION_MS,
+        durationMs: DEFAULT_TIMER_DURATION_MS,
+        status: 'paused',
+      }
+      const next = { ...current, ...patch }
+      return {
+        ...state,
+        matchTimers: {
+          ...state.matchTimers,
+          [id]: next,
+        },
+      }
+    })
   }
 
   return {
     ...defaultState(),
 
-    // Bootstrap
-    hydrate,
+    hydrate: async () => {
+      set((s) => ({ ...s, _meta: { ...s._meta, hydrated: true } }))
+    },
 
-    // تطبيق حالة واردة من الخادم/الـ WebSocket بدون إعادة حفظ لتفادي الحلقات.
     applyRemoteState: (payload) => {
       if (!payload) return
       isApplyingRemote = true
@@ -159,11 +162,12 @@ export const useTournamentStore = create((set, get) => {
           ...s,
           ...payload,
           ...mergedCollections(s, payload),
+          sponsor: payload.sponsor ? normalizeSponsor(payload.sponsor) : s.sponsor,
+          matchTimers: payload.matchTimers ? normalizeMatchTimers(payload.matchTimers) : s.matchTimers,
           liveMatchState: payload.liveMatchState
             ? {
-                ...payload.liveMatchState,
-                timer: normalizeTimer(payload.liveMatchState.timer),
-                goalEvents: Array.isArray(payload.liveMatchState.goalEvents) ? payload.liveMatchState.goalEvents : [],
+                matchId: payload.liveMatchState.matchId ?? s.liveMatchState.matchId,
+                goalEvents: Array.isArray(payload.liveMatchState.goalEvents) ? payload.liveMatchState.goalEvents : s.liveMatchState.goalEvents,
               }
             : s.liveMatchState,
           _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
@@ -173,11 +177,45 @@ export const useTournamentStore = create((set, get) => {
       }
     },
 
-    // Tournament basics
+    applyMatchTimerUpdate: ({ matchId, remainingMs, status, durationMs }) => {
+      const id = Number(matchId)
+      if (!Number.isFinite(id) || id <= 0) return
+      set((state) => {
+        const current = state.matchTimers[id] || {
+          remainingMs: DEFAULT_TIMER_DURATION_MS,
+          durationMs: DEFAULT_TIMER_DURATION_MS,
+          status: 'paused',
+        }
+        const nextRemaining = Math.max(0, Number(remainingMs ?? current.remainingMs))
+        const nextDuration = Math.max(1, Number(durationMs ?? current.durationMs))
+        return {
+          ...state,
+          matchTimers: {
+            ...state.matchTimers,
+            [id]: {
+              remainingMs: nextRemaining,
+              durationMs: nextDuration,
+              status: statusForRemaining(nextRemaining, status || current.status),
+            },
+          },
+        }
+      })
+    },
+
+    clearMatchTimerLocal: (matchId) => {
+      const id = Number(matchId)
+      if (!Number.isFinite(id) || id <= 0) return
+      set((state) => {
+        if (!state.matchTimers[id]) return state
+        const next = { ...state.matchTimers }
+        delete next[id]
+        return { ...state, matchTimers: next }
+      })
+    },
+
     setTournament: (partial) =>
       setState((s) => ({ ...s, tournament: { ...s.tournament, ...partial } })),
 
-    // Teams (Phase 2)
     addTeam: (teamInput) =>
       setState((s) => {
         const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
@@ -191,6 +229,7 @@ export const useTournamentStore = create((set, get) => {
         }
         return { ...s, teams: [team, ...s.teams] }
       }),
+
     updateTeam: (teamId, patch) =>
       setState((s) => ({
         ...s,
@@ -207,13 +246,13 @@ export const useTournamentStore = create((set, get) => {
             : t,
         ),
       })),
+
     deleteTeam: (teamId) =>
       setState((s) => ({
         ...s,
         teams: s.teams.filter((t) => t.id !== teamId),
       })),
 
-    // Tournament generator (Phase 3)
     generateTournament: ({ format } = {}) =>
       setState((s) => {
         const nextFormat = format ?? s.tournament.format ?? 'دوري'
@@ -224,26 +263,14 @@ export const useTournamentStore = create((set, get) => {
           tournament: { ...s.tournament, format: nextFormat },
           matches,
           standings: nextStandings,
-          liveMatchState: {
-            ...s.liveMatchState,
-            matchId: null,
-            goalEvents: [],
-            timer: {
-              ...normalizeTimer(s.liveMatchState.timer),
-              running: false,
-              startedAt: null,
-              accumulatedMs: 0,
-            },
-          },
+          liveMatchState: { ...s.liveMatchState, matchId: null, goalEvents: [] },
+          matchTimers: {},
         }
       }),
-    recalcStandings: () =>
-      setState((s) => ({
-        ...s,
-        standings: computeStandings(s.teams, s.matches),
-      })),
 
-    // Live match selection (Phase 4)
+    recalcStandings: () =>
+      setState((s) => ({ ...s, standings: computeStandings(s.teams, s.matches) })),
+
     setLiveMatch: (matchId) =>
       setState((s) => ({
         ...s,
@@ -256,47 +283,25 @@ export const useTournamentStore = create((set, get) => {
       if (!match) throw new Error('المباراة غير موجودة')
       if (!match.homeTeamId || !match.awayTeamId) throw new Error('لا يمكن بدء مباراة بدون فريقين')
 
-      setState((s) => {
-        const timer = normalizeTimer(s.liveMatchState.timer)
-        return {
-          ...s,
-          activeScreen: 'live',
-          matches: s.matches.map((m) => {
-            if (m.id === matchId) return { ...m, status: 'live' }
-            return m
-          }),
-          liveMatchState: {
-            ...s.liveMatchState,
-            matchId,
-            goalEvents: [],
-            timer: {
-              ...timer,
-              running: false,
-              startedAt: null,
-              accumulatedMs: timer.accumulatedMs ?? 0,
-            },
-          },
-        }
-      })
+      setState((s) => ({
+        ...s,
+        activeScreen: 'live',
+        matches: s.matches.map((m) => (m.id === matchId ? { ...m, status: 'live' } : m)),
+        liveMatchState: { ...s.liveMatchState, matchId, goalEvents: [] },
+      }))
     },
 
     endMatch: (matchId) =>
       setState((s) => {
         const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished' } : m))
         const ended = s.matches.find((m) => m.id === matchId)
+        const nextTimers = { ...s.matchTimers }
+        delete nextTimers[matchId]
         return {
           ...s,
           matches: nextMatches,
           standings: ended?.mode === 'league' ? computeStandings(s.teams, nextMatches) : s.standings,
-          liveMatchState: {
-            ...s.liveMatchState,
-            timer: (() => {
-              const t = normalizeTimer(s.liveMatchState.timer)
-              if (!t.running) return t
-              const accumulatedMs = t.accumulatedMs + Math.max(0, Date.now() - (t.startedAt || Date.now()))
-              return { ...t, running: false, startedAt: null, accumulatedMs }
-            })(),
-          },
+          matchTimers: nextTimers,
         }
       }),
 
@@ -304,30 +309,18 @@ export const useTournamentStore = create((set, get) => {
       setState((s) => {
         const nextMatches = s.matches.map((m) =>
           m.id === matchId
-            ? {
-                ...m,
-                homeScore: 0,
-                awayScore: 0,
-                status: 'pending',
-                winnerTeamId: null,
-                resultConfirmed: false,
-              }
+            ? { ...m, homeScore: 0, awayScore: 0, status: 'pending', winnerTeamId: null, resultConfirmed: false }
             : m,
         )
         const restarted = s.matches.find((m) => m.id === matchId)
+        const nextTimers = { ...s.matchTimers }
+        delete nextTimers[matchId]
         return {
           ...s,
           matches: nextMatches,
           standings: restarted?.mode === 'league' ? computeStandings(s.teams, nextMatches) : s.standings,
-          liveMatchState:
-            s.liveMatchState.matchId === matchId
-              ? {
-                  ...s.liveMatchState,
-                  matchId: null,
-                  goalEvents: [],
-                  timer: { ...normalizeTimer(s.liveMatchState.timer), running: false, startedAt: null, accumulatedMs: 0 },
-                }
-              : s.liveMatchState,
+          liveMatchState: s.liveMatchState.matchId === matchId ? { ...s.liveMatchState, matchId: null, goalEvents: [] } : s.liveMatchState,
+          matchTimers: nextTimers,
         }
       }),
 
@@ -335,7 +328,7 @@ export const useTournamentStore = create((set, get) => {
       setState((s) => {
         const match = s.matches.find((m) => m.id === matchId)
         if (!match) return s
-        if (match.status !== 'live') throw new Error('ابدأ المباراة أولاً')
+        if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
         const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, homeScore: (m.homeScore ?? 0) + 1 } : m))
         return {
           ...s,
@@ -343,10 +336,7 @@ export const useTournamentStore = create((set, get) => {
           standings: match.mode === 'league' ? computeStandings(s.teams, nextMatches) : s.standings,
           liveMatchState: {
             ...s.liveMatchState,
-            goalEvents: [
-              ...s.liveMatchState.goalEvents,
-              { id: crypto.randomUUID(), matchId, side: 'home', at: Date.now() },
-            ],
+            goalEvents: [...s.liveMatchState.goalEvents, { id: crypto.randomUUID(), matchId, side: 'home', at: Date.now() }],
           },
         }
       }),
@@ -355,7 +345,7 @@ export const useTournamentStore = create((set, get) => {
       setState((s) => {
         const match = s.matches.find((m) => m.id === matchId)
         if (!match) return s
-        if (match.status !== 'live') throw new Error('ابدأ المباراة أولاً')
+        if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
         const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, awayScore: (m.awayScore ?? 0) + 1 } : m))
         return {
           ...s,
@@ -363,10 +353,7 @@ export const useTournamentStore = create((set, get) => {
           standings: match.mode === 'league' ? computeStandings(s.teams, nextMatches) : s.standings,
           liveMatchState: {
             ...s.liveMatchState,
-            goalEvents: [
-              ...s.liveMatchState.goalEvents,
-              { id: crypto.randomUUID(), matchId, side: 'away', at: Date.now() },
-            ],
+            goalEvents: [...s.liveMatchState.goalEvents, { id: crypto.randomUUID(), matchId, side: 'away', at: Date.now() }],
           },
         }
       }),
@@ -407,132 +394,130 @@ export const useTournamentStore = create((set, get) => {
         if (hs === as) throw new Error('لا يمكن تأكيد النتيجة في خروج مغلوب عند التعادل')
         const winnerTeamId = hs > as ? match.homeTeamId : match.awayTeamId
         if (!winnerTeamId) throw new Error('لا يوجد فائز')
-
-        setState((s) => {
-          const nextMatches = s.matches.map((m) => {
-            if (m.id === matchId) {
-              return { ...m, status: 'finished', winnerTeamId, resultConfirmed: true }
-            }
-            if (m.id === match.nextMatchId && match.nextSlot) {
-              const patch = match.nextSlot === 'home' ? { homeTeamId: winnerTeamId } : { awayTeamId: winnerTeamId }
-              const updated = { ...m, ...patch }
-              // إذا اكتمل الطرفين، اترك الحالة pending حتى يبدأها المشغّل
-              if (updated.homeTeamId && updated.awayTeamId && updated.status === 'finished' && updated.winnerTeamId) {
-                return updated
-              }
-              if (updated.homeTeamId && updated.awayTeamId && updated.status === 'pending') return updated
-              return updated
-            }
-            return m
-          })
-
-          return { ...s, matches: nextMatches }
-        })
+        setState((s) => ({
+          ...s,
+          matches: s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished', winnerTeamId, resultConfirmed: true } : m)),
+        }))
         return
       }
 
-      // دوري: تثبيت المباراة ثم إعادة حساب الترتيب
       setState((s) => {
-        const updatedMatches = s.matches.map((m) =>
-          m.id === matchId ? { ...m, status: 'finished', resultConfirmed: true } : m,
-        )
-        return {
-          ...s,
-          matches: updatedMatches,
-          standings: computeStandings(s.teams, updatedMatches),
-        }
+        const updatedMatches = s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished', resultConfirmed: true } : m))
+        return { ...s, matches: updatedMatches, standings: computeStandings(s.teams, updatedMatches) }
       })
     },
 
-    // Timer (Phase 4)
-    setTimerDurationMinutes: (minutes) =>
-      setState((s) => {
-        const mins = Math.max(1, Number(minutes) || 10)
-        return {
-          ...s,
-          liveMatchState: {
-            ...s.liveMatchState,
-            timer: { durationMs: mins * 60 * 1000, running: false, startedAt: null, accumulatedMs: 0 },
-          },
-        }
-      }),
+    setTimerDurationMinutes: (minutes, matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      const durationMs = Math.max(1, Number(minutes) || 10) * 60 * 1000
+      updateMatchTimerLocal(scopedMatchId, {
+        durationMs,
+        remainingMs: durationMs,
+        status: 'paused',
+      })
+      wsSetMatchTimerDuration(scopedMatchId, durationMs)
+    },
 
-    startTimer: () =>
-      setState((s) => {
-        const t = normalizeTimer(s.liveMatchState.timer)
-        if (t.running) return s
-        const remaining = computeRemainingMs(t, Date.now())
-        if (remaining <= 0) return s
-        return {
-          ...s,
-          liveMatchState: {
-            ...s.liveMatchState,
-            timer: { ...t, running: true, startedAt: Date.now() },
-          },
-        }
-      }),
+    startTimer: (matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      const current = get().matchTimers[scopedMatchId]
+      const durationMs = Math.max(1, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS))
+      updateMatchTimerLocal(scopedMatchId, { durationMs, status: 'running' })
+      wsStartMatchTimer(scopedMatchId, durationMs)
+    },
 
-    pauseTimer: () =>
-      setState((s) => {
-        const t = normalizeTimer(s.liveMatchState.timer)
-        if (!t.running) return s
-        const accumulatedMs = t.accumulatedMs + Math.max(0, Date.now() - (t.startedAt || Date.now()))
-        return {
-          ...s,
-          liveMatchState: { ...s.liveMatchState, timer: { ...t, running: false, startedAt: null, accumulatedMs } },
-        }
-      }),
+    pauseTimer: (matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      updateMatchTimerLocal(scopedMatchId, { status: 'paused' })
+      wsPauseMatchTimer(scopedMatchId)
+    },
 
-    resetTimer: () =>
-      setState((s) => {
-        const t = normalizeTimer(s.liveMatchState.timer)
-        return {
-          ...s,
-          liveMatchState: { ...s.liveMatchState, timer: { ...t, running: false, startedAt: null, accumulatedMs: 0 } },
-        }
-      }),
+    resumeTimer: (matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      updateMatchTimerLocal(scopedMatchId, { status: 'running' })
+      wsResumeMatchTimer(scopedMatchId)
+    },
 
-    adjustTimerSeconds: (deltaSeconds) =>
-      setState((s) => {
-        const t = normalizeTimer(s.liveMatchState.timer)
-        const deltaMs = (Number(deltaSeconds) || 0) * 1000
-        const nextDuration = Math.max(0, t.durationMs + deltaMs)
-        return {
-          ...s,
-          liveMatchState: { ...s.liveMatchState, timer: { ...t, durationMs: nextDuration } },
-        }
-      }),
+    resetTimer: (matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      set((state) => {
+        const next = { ...state.matchTimers }
+        delete next[scopedMatchId]
+        return { ...state, matchTimers: next }
+      })
+      wsClearMatchTimer(scopedMatchId)
+    },
 
-    // Display controls
+    adjustTimerSeconds: (deltaSeconds, matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      const deltaMs = (Number(deltaSeconds) || 0) * 1000
+      if (!Number.isFinite(deltaMs) || deltaMs === 0) return
+      const current = get().matchTimers[scopedMatchId]
+      const nextDuration = Math.max(0, Number(current?.durationMs ?? DEFAULT_TIMER_DURATION_MS) + deltaMs)
+      updateMatchTimerLocal(scopedMatchId, {
+        durationMs: nextDuration,
+        remainingMs: Math.max(0, Number(current?.remainingMs ?? nextDuration) + deltaMs),
+      })
+      wsAdjustMatchTimer(scopedMatchId, deltaMs)
+    },
+
+    clearMatchTimer: (matchId) => {
+      const scopedMatchId = getScopedMatchId(matchId)
+      if (!scopedMatchId) return
+      set((state) => {
+        const next = { ...state.matchTimers }
+        delete next[scopedMatchId]
+        return { ...state, matchTimers: next }
+      })
+      wsClearMatchTimer(scopedMatchId)
+    },
+
     setActiveScreen: (screen) => setState({ activeScreen: screen }),
-    setSponsorLogo: (logoBase64) => setState((s) => ({ ...s, sponsor: { ...s.sponsor, logoBase64 } })),
+    setSponsorUrls: (urls) =>
+      setState((s) => ({
+        ...s,
+        sponsor: {
+          ...s.sponsor,
+          urls: (Array.isArray(urls) ? urls : []).map((item) => String(item || '').trim()).filter(Boolean),
+        },
+      })),
 
-    // Bulk setters (Phase 3 will generate them)
     setTeams: (teams) => setState({ teams }),
     setMatches: (matches) => setState({ matches }),
     setStandings: (standings) => setState({ standings }),
     setLiveMatchState: (liveMatchState) => setState({ liveMatchState }),
+    setMatchTimers: (matchTimers) => setState((s) => ({ ...s, matchTimers: normalizeMatchTimers(matchTimers) })),
 
-    // Backup (يُستخدم في لوحة التحكم لاحقاً)
     exportJSON: () => {
       const snapshot = persistedSlice(get())
-      return JSON.stringify({ version: 1, exportedAt: Date.now(), data: snapshot }, null, 2)
+      return JSON.stringify({ version: 2, exportedAt: Date.now(), data: snapshot }, null, 2)
     },
+
     importJSON: async (jsonString) => {
       const parsed = JSON.parse(jsonString)
       const data = parsed?.data
-      if (!data) throw new Error('ملف النسخة الاحتياطية غير صالح')
+      if (!data) throw new Error('Invalid backup file')
+      const normalizedData = {
+        ...data,
+        sponsor: normalizeSponsor(data.sponsor),
+        matchTimers: normalizeMatchTimers(data.matchTimers),
+      }
 
       isApplyingRemote = true
       try {
-        set(() => ({ ...defaultState(), ...data, _meta: { ...get()._meta, hydrated: true } }))
-        await commit({ ...get(), ...data }, { broadcast: true })
+        set(() => ({ ...defaultState(), ...normalizedData, _meta: { ...get()._meta, hydrated: true } }))
+        await commit({ ...get(), ...normalizedData }, { broadcast: true })
       } finally {
         isApplyingRemote = false
       }
     },
 
-    // Factory reset
     resetAll: async () => {
       const initial = defaultState()
       set(() => initial)

@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ws: true,
         },
+        '/media/videos': {
+          target: backendUrl,
+          changeOrigin: true,
+        },
       },
     },
     plugins: [

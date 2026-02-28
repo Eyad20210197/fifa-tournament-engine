@@ -29,3 +29,8 @@ export async function fetchBusinessBranding() {
   const response = await apiClient.get('/businesses/branding')
   return response.data.data || response.data || null
 }
+
+export async function updateMyBusinessBranding(payload) {
+  const response = await apiClient.patch('/businesses/branding', payload)
+  return response.data.data || response.data || null
+}

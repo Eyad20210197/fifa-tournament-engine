@@ -36,6 +36,7 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   frontendUrl: String(process.env.FRONTEND_URL || '').trim(),
   allowedOrigins: parseAllowedOrigins(),
+  mediaVideosDir: String(process.env.MEDIA_VIDEOS_DIR || '/var/www/tournament/media/videos').trim(),
 }
 
 if (!env.databaseUrl) {

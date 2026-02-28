@@ -1,22 +1,24 @@
-﻿import DashboardLayout from '../layouts/DashboardLayout'
+import { lazy } from 'react'
+import DashboardLayout from '../layouts/DashboardLayout'
 import ProtectedRoute from '../../auth/ProtectedRoute'
 import RoleGuard from '../../auth/RoleGuard'
 import { ROLES } from '../../auth/roles'
-import SaasLoginPage from '../../pages/auth/SaasLoginPage'
-import DashboardHomePage from '../../pages/dashboard/DashboardHomePage'
-import SuperAdminBusinessesPage from '../../pages/super-admin/SuperAdminBusinessesPage'
-import SuperAdminAccountsPage from '../../pages/super-admin/SuperAdminAccountsPage'
-import SuperAdminSubscriptionsPage from '../../pages/super-admin/SuperAdminSubscriptionsPage'
-import TournamentWizardPage from '../../pages/tournament/TournamentWizardPage'
-import TournamentListPage from '../../pages/tournament/TournamentListPage'
-import Finance from '../../pages/tournament/Finance'
-import BrandingPage from '../../pages/branding/BrandingPage'
-import UnauthorizedPage from '../../pages/auth/UnauthorizedPage'
-import LockedPage from '../../pages/auth/LockedPage'
-import TeamsPage from '../../pages/business/TeamsPage'
-import ScheduleManagementPage from '../../pages/business/ScheduleManagementPage'
-import UsersPage from '../../pages/business/UsersPage'
-import SubscriptionStatusPage from '../../pages/business/SubscriptionStatusPage'
+
+const SaasLoginPage = lazy(() => import('../../pages/auth/SaasLoginPage'))
+const DashboardHomePage = lazy(() => import('../../pages/dashboard/DashboardHomePage'))
+const SuperAdminBusinessesPage = lazy(() => import('../../pages/super-admin/SuperAdminBusinessesPage'))
+const SuperAdminAccountsPage = lazy(() => import('../../pages/super-admin/SuperAdminAccountsPage'))
+const SuperAdminSubscriptionsPage = lazy(() => import('../../pages/super-admin/SuperAdminSubscriptionsPage'))
+const TournamentWizardPage = lazy(() => import('../../pages/tournament/TournamentWizardPage'))
+const TournamentListPage = lazy(() => import('../../pages/tournament/TournamentListPage'))
+const Finance = lazy(() => import('../../pages/tournament/Finance'))
+const BrandingPage = lazy(() => import('../../pages/branding/BrandingPage'))
+const UnauthorizedPage = lazy(() => import('../../pages/auth/UnauthorizedPage'))
+const LockedPage = lazy(() => import('../../pages/auth/LockedPage'))
+const TeamsPage = lazy(() => import('../../pages/business/TeamsPage'))
+const ScheduleManagementPage = lazy(() => import('../../pages/business/ScheduleManagementPage'))
+const UsersPage = lazy(() => import('../../pages/business/UsersPage'))
+const SubscriptionStatusPage = lazy(() => import('../../pages/business/SubscriptionStatusPage'))
 
 export const saasRoutes = [
   { path: '/saas/login', element: <SaasLoginPage /> },

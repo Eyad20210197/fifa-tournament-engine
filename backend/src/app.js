@@ -31,23 +31,8 @@ const apiLimiter = rateLimit({
 
 app.use('/api', apiLimiter)
 
-const allowedOrigins = new Set(env.allowedOrigins)
-
 const corsOptions = {
-  origin(origin, callback) {
-    // Allow server-to-server requests with no browser Origin header.
-    if (!origin) {
-      return callback(null, true)
-    }
-
-    if (allowedOrigins.has(origin)) {
-      return callback(null, true)
-    }
-
-    const corsError = new Error('CORS origin denied')
-    corsError.status = 403
-    return callback(corsError)
-  },
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

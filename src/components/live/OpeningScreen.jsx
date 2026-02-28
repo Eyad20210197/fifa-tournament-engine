@@ -49,7 +49,7 @@ export const OpeningScreen = memo(function OpeningScreen({ allowSkip = false, on
             <div className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_55%)]">
               <div className="text-center">
                 <p className="font-headline text-[clamp(1.1rem,1.9vw,2.2rem)] text-white/85">16:9 Opening Video Placeholder</p>
-                <p className="mt-1 text-[clamp(0.8rem,1vw,1.1rem)] text-white/60">Upload MP4 / WEBM from Control Panel</p>
+                <p className="mt-1 text-[clamp(0.8rem,1vw,1.1rem)] text-white/60">Upload MP4 from Brand Identity</p>
               </div>
             </div>
           )}

@@ -13,6 +13,11 @@ function bufferToDataUri(buffer, mimeType) {
   return `data:${mimeType};base64,${base64}`
 }
 
+function normalizePublicId(publicId) {
+  const value = String(publicId || '').trim()
+  return value || undefined
+}
+
 export async function uploadBufferToCloudinary({
   buffer,
   mimeType,
@@ -24,7 +29,25 @@ export async function uploadBufferToCloudinary({
   const uploaded = await cloudinary.uploader.upload(file, {
     folder,
     resource_type: resourceType,
-    public_id: publicId,
+    public_id: normalizePublicId(publicId),
+    overwrite: false,
+    invalidate: true,
+  })
+  return uploaded
+}
+
+export async function uploadLargeFileToCloudinary({
+  filePath,
+  folder,
+  resourceType,
+  publicId,
+  chunkSizeBytes = 20 * 1024 * 1024,
+}) {
+  const uploaded = await cloudinary.uploader.upload_large(filePath, {
+    folder,
+    resource_type: resourceType,
+    public_id: normalizePublicId(publicId),
+    chunk_size: chunkSizeBytes,
     overwrite: false,
     invalidate: true,
   })

@@ -250,7 +250,7 @@ function AnimatedHeaderLogo({ brandingLogoUrl }) {
       loop
       playsInline
       preload="auto"
-      className="h-[clamp(40px,3.8vw,88px)] w-[clamp(96px,9vw,190px)] object-contain"
+      className="hidden h-[clamp(40px,3.8vw,88px)] w-[clamp(96px,9vw,190px)] object-contain lg:block"
       aria-label="Animated tournament logo"
     />
   )

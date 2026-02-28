@@ -9,7 +9,7 @@ export async function uploadOpeningVideo(file) {
   const body = new FormData()
   body.append('video', file)
   body.append('type', 'opening')
-  const response = await apiClient.post('/upload-video', body, {
+  const response = await apiClient.post('/media/upload-video', body, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -50,10 +50,20 @@ export async function uploadBrandingAnimatedLogo(file) {
   const body = new FormData()
   body.append('video', file)
   body.append('type', 'branding_animated_logo')
-  const response = await apiClient.post('/upload-video', body, {
+  const response = await apiClient.post('/media/upload-video', body, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
   })
+  return response.data?.data || null
+}
+
+export async function fetchBrandingAnimatedLogo() {
+  const response = await apiClient.get('/media/branding-animated-logo')
+  return response.data?.data || null
+}
+
+export async function deleteBrandingAnimatedLogo() {
+  const response = await apiClient.delete('/media/branding-animated-logo')
   return response.data?.data || null
 }

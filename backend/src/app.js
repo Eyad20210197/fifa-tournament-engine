@@ -12,7 +12,7 @@ import { tournamentsRouter } from './modules/tournaments/tournaments.routes.js'
 import { financeRouter } from './modules/finance/finance.routes.js'
 import { liveStateRouter } from './modules/live-state/live-state.routes.js'
 import { ablyRouter } from './modules/ably/ably.routes.js'
-import { mediaRouter, uploadVideoRouter } from './modules/media/media.routes.js'
+import { mediaRouter } from './modules/media/media.routes.js'
 import { notFound } from './middleware/notFound.js'
 import { errorHandler } from './middleware/errorHandler.js'
 
@@ -43,7 +43,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '500mb' }))
+app.use(express.urlencoded({ extended: true, limit: '500mb' }))
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'))
 app.use(
   '/media/videos',
@@ -64,7 +65,6 @@ app.use('/api/live-state', liveStateRouter)
 app.use('/api/ably', ablyRouter)
 app.use('/ably', ablyRouter)
 app.use('/api/media', mediaRouter)
-app.use('/api', uploadVideoRouter)
 
 app.use(notFound)
 app.use(errorHandler)

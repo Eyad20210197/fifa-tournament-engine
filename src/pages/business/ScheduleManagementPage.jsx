@@ -16,7 +16,6 @@ import {
   updateTournament,
 } from '../../services/tournamentService'
 import { deleteFinancialSetup, fetchFinancialSetup, fetchFinanceSummary, upsertFinancialSetup } from '../../services/financeService'
-import { formatArabicDateTime } from '../../utils/format'
 
 const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
@@ -1034,7 +1033,7 @@ export default function ScheduleManagementPage() {
                           onChange={(event) => setMatchTimes((state) => ({ ...state, [match.id]: event.target.value }))}
                         />
                       ) : (
-                        formatArabicDateTime(match.starts_at)
+                        formatEnglishDateTime(match.starts_at)
                       )}
                     </td>
                     {isAdmin ? (
@@ -1117,9 +1116,23 @@ function translateStatus(status) {
 
 function formatStageName(match) {
   const base = String(match?.stage_name || '').trim()
+  const stageNumber = Number(match?.stage_number || 0)
+  const roundNumber = Number(match?.round_number || 1)
+  const fallback = stageNumber > 0 ? `Stage ${stageNumber} - Round ${roundNumber}` : `Round ${roundNumber}`
   const leg = Number(match?.leg_number || 1)
-  if (!base) return '--'
-  if (leg === 2) return `${base} - إياب`
-  return `${base} - ذهاب`
+  const label = base || fallback
+  if (leg === 2) return `${label} - Leg 2`
+  if (leg === 1) return `${label} - Leg 1`
+  return label
 }
 
+function formatEnglishDateTime(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--'
+  return new Intl.DateTimeFormat('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    hour12: true,
+  }).format(date)
+}

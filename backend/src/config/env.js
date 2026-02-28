@@ -21,6 +21,12 @@ export const env = {
   ablyApiKey: String(process.env.ABLY_API_KEY || '').trim(),
   ablyTokenTtlMs: Number(process.env.ABLY_TOKEN_TTL_MS || 60 * 60 * 1000),
   mediaVideosDir: String(process.env.MEDIA_VIDEOS_DIR || '/var/www/tournament/media/videos').trim(),
+  cloudinaryCloudName: String(process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
+  cloudinaryApiKey: String(process.env.CLOUDINARY_API_KEY || '').trim(),
+  cloudinaryApiSecret: String(process.env.CLOUDINARY_API_SECRET || '').trim(),
+  cloudinaryFolderVideo: String(process.env.CLOUDINARY_FOLDER_VIDEO || 'tournament/opening').trim(),
+  cloudinaryFolderSponsor: String(process.env.CLOUDINARY_FOLDER_SPONSOR || 'tournament/sponsors').trim(),
+  cloudinaryFolderBranding: String(process.env.CLOUDINARY_FOLDER_BRANDING || 'tournament/branding').trim(),
 }
 
 if (!env.databaseUrl) {
@@ -44,4 +50,8 @@ if (!env.baseUrl && env.nodeEnv === 'production') {
 
 if (!env.ablyApiKey) {
   throw new Error('ABLY_API_KEY is required')
+}
+
+if (!env.cloudinaryCloudName || !env.cloudinaryApiKey || !env.cloudinaryApiSecret) {
+  throw new Error('Cloudinary config is required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET')
 }

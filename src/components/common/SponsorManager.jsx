@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { SponsorTicker } from '../live/SponsorTicker'
+import { uploadSponsorLogo } from '../../services/mediaService'
 
 export function SponsorManager() {
   const sponsorUrls = useTournamentStore((s) => s.sponsor.urls)
   const setSponsorUrls = useTournamentStore((s) => s.setSponsorUrls)
-  const [inputUrl, setInputUrl] = useState('')
+  const uploadRef = useRef(null)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const normalizedUrls = useMemo(
@@ -13,20 +15,25 @@ export function SponsorManager() {
     [sponsorUrls],
   )
 
-  function addUrl() {
-    const value = String(inputUrl || '').trim()
-    if (!value) return
-    if (!/^https?:\/\//i.test(value)) {
-      setError('يجب إدخال رابط URL صالح يبدأ بـ http:// أو https://')
-      return
-    }
-    if (normalizedUrls.includes(value)) {
-      setError('الرابط مضاف مسبقا')
-      return
-    }
+  async function onUpload(file) {
+    if (!file) return
+    setSaving(true)
     setError('')
-    setSponsorUrls([...normalizedUrls, value])
-    setInputUrl('')
+    try {
+      const uploaded = await uploadSponsorLogo(file)
+      const value = String(uploaded?.url || '').trim()
+      if (!value) throw new Error('Invalid Cloudinary URL')
+      if (normalizedUrls.includes(value)) {
+        setError('Logo already added')
+        return
+      }
+      setSponsorUrls([...normalizedUrls, value])
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload sponsor logo')
+    } finally {
+      setSaving(false)
+      if (uploadRef.current) uploadRef.current.value = ''
+    }
   }
 
   function removeUrl(url) {
@@ -35,20 +42,20 @@ export function SponsorManager() {
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-6">
-      <h3 className="text-xl font-semibold">روابط الرعاة</h3>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">يتم عرض الروابط مباشرة في شريط البث</p>
+      <h3 className="text-xl font-semibold">Sponsor Logos</h3>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">Upload logos directly to Cloudinary and show them in ticker.</p>
 
       <div className="mt-4 flex flex-col gap-3">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={inputUrl}
-            onChange={(event) => setInputUrl(event.target.value)}
-            placeholder="https://example.com/sponsor-logo.webp"
-            className="min-h-11 flex-1 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[var(--primary-color)]/60"
-          />
-          <button className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b]" onClick={addUrl}>
-            إضافة
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={(event) => onUpload(event.target.files?.[0])} />
+          <button
+            className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+            onClick={() => uploadRef.current?.click()}
+            disabled={saving}
+          >
+            {saving ? 'Uploading...' : 'Upload Sponsor Logo'}
           </button>
+          <p className="text-xs text-[var(--text-secondary)]">PNG/JPG/WEBP/GIF/SVG - max 10MB</p>
         </div>
 
         {error ? <p className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
@@ -63,12 +70,12 @@ export function SponsorManager() {
                   className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-100"
                   onClick={() => removeUrl(url)}
                 >
-                  حذف
+                  Remove
                 </button>
               </div>
             ))
           ) : (
-            <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-secondary)]">لا توجد روابط رعاية بعد.</p>
+            <p className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-[var(--text-secondary)]">No sponsor logos yet.</p>
           )}
         </div>
 

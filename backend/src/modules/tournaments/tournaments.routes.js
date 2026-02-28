@@ -8,6 +8,7 @@ import { requireSubscription } from '../../middleware/requireSubscription.js'
 import { HttpError } from '../../utils/httpError.js'
 import { publishEvent } from '../../services/ably.service.js'
 import { matchChannel, tournamentChannel } from '../../services/channel-names.service.js'
+import { evaluateRoundCompletion, generateNextRound, getTournamentProgress, toggleProgressionLock } from '../../services/progression.service.js'
 
 export const tournamentsRouter = Router()
 const FORMAT_LEAGUE = '\u062f\u0648\u0631\u064a'
@@ -49,6 +50,12 @@ const createTournamentSchema = z.object({
     .array(z.enum(HOME_AWAY_STAGE_VALUES))
     .optional()
     .nullable(),
+  progression_format: z.enum(['knockout', 'round_robin', 'hybrid']).optional(),
+  current_stage: z.coerce.number().int().positive().optional(),
+  current_round: z.coerce.number().int().positive().optional(),
+  auto_advance: z.coerce.boolean().optional(),
+  progression_locked: z.coerce.boolean().optional(),
+  hybrid_qualifiers_count: z.coerce.number().int().min(2).max(64).optional(),
   teams: z.array(teamInputSchema).max(128).default([]),
 })
 
@@ -68,6 +75,12 @@ const updateTournamentSchema = z.object({
     .array(z.enum(HOME_AWAY_STAGE_VALUES))
     .optional()
     .nullable(),
+  progression_format: z.enum(['knockout', 'round_robin', 'hybrid']).optional(),
+  current_stage: z.coerce.number().int().positive().optional(),
+  current_round: z.coerce.number().int().positive().optional(),
+  auto_advance: z.coerce.boolean().optional(),
+  progression_locked: z.coerce.boolean().optional(),
+  hybrid_qualifiers_count: z.coerce.number().int().min(2).max(64).optional(),
 })
 
 const updateTeamsSchema = z.object({
@@ -79,6 +92,11 @@ const updateMatchSchema = z.object({
   away_score: z.coerce.number().int().nonnegative().optional(),
   status: z.enum(['pending', 'live', 'finished']).optional(),
   starts_at: optionalDateTimeSchema.optional(),
+  result_confirmed: z.coerce.boolean().optional(),
+  winner_team_id: z
+    .preprocess((value) => (value === undefined || value === null || value === '' ? null : value), z.coerce.number().int().positive().nullable())
+    .optional(),
+  manual_override: z.coerce.boolean().optional(),
 })
 
 const bulkScheduleSchema = z.object({
@@ -189,8 +207,11 @@ async function regenerateMatches(client, { businessId, tournamentId, format, tea
   })
   for (const match of matches) {
     await client.query(
-      `INSERT INTO tournament_matches (business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number)
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)`,
+      `INSERT INTO tournament_matches (
+         business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number,
+         stage_number, result_confirmed, winner_team_id, manual_override
+       )
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE)`,
       [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number],
     )
   }
@@ -204,6 +225,7 @@ tournamentsRouter.get(
     const result = await query(
       `SELECT t.id, t.name, t.format, t.status, t.starts_at, t.ends_at, t.sponsor_logo_url, t.created_at,
               t.home_away_enabled, t.home_away_stage, t.home_away_stages,
+              t.progression_format, t.current_stage, t.current_round, t.auto_advance, t.progression_locked, t.hybrid_qualifiers_count,
               COUNT(tt.id)::int AS teams_count
        FROM tournaments t
        LEFT JOIN tournament_teams tt ON tt.tournament_id = t.id AND tt.business_id = t.business_id
@@ -233,9 +255,15 @@ tournamentsRouter.post(
 
     const created = await withTransaction(async (client) => {
       const tournamentResult = await client.query(
-        `INSERT INTO tournaments (business_id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages)
-         VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9)
-         RETURNING id, business_id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages, created_at`,
+        `INSERT INTO tournaments (
+           business_id, name, format, status, starts_at, ends_at, sponsor_logo_url,
+           home_away_enabled, home_away_stage, home_away_stages,
+           progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count
+         )
+         VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         RETURNING id, business_id, name, format, status, starts_at, ends_at, sponsor_logo_url,
+                   home_away_enabled, home_away_stage, home_away_stages,
+                   progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, created_at`,
         [
           req.user.business_id,
           payload.name,
@@ -246,6 +274,12 @@ tournamentsRouter.post(
           payload.home_away_enabled ?? false,
           payload.home_away_stage ?? null,
           homeAwayStages,
+          payload.progression_format ?? (payload.format === FORMAT_KNOCKOUT ? 'knockout' : 'round_robin'),
+          payload.current_stage ?? 1,
+          payload.current_round ?? 1,
+          payload.auto_advance ?? false,
+          payload.progression_locked ?? false,
+          payload.hybrid_qualifiers_count ?? 4,
         ],
       )
       const tournament = tournamentResult.rows[0]
@@ -289,7 +323,8 @@ tournamentsRouter.get(
   asyncHandler(async (req, res) => {
     const tournamentId = Number(req.params.id)
     const tournament = await query(
-      `SELECT id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages
+      `SELECT id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages,
+              progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count
        FROM tournaments
        WHERE id = $1 AND business_id = $2
        LIMIT 1`,
@@ -305,7 +340,8 @@ tournamentsRouter.get(
       [tournamentId, req.user.business_id],
     )
     const matches = await query(
-      `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at
+      `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
+              stage_number, result_confirmed, winner_team_id, manual_override
        FROM tournament_matches
        WHERE tournament_id = $1 AND business_id = $2
        ORDER BY round_number ASC, id ASC`,
@@ -370,9 +406,16 @@ tournamentsRouter.patch(
            home_away_enabled = COALESCE($7, home_away_enabled),
            home_away_stage = COALESCE($8, home_away_stage),
            home_away_stages = COALESCE($9, home_away_stages),
+           progression_format = COALESCE($10, progression_format),
+           current_stage = COALESCE($11, current_stage),
+           current_round = COALESCE($12, current_round),
+           auto_advance = COALESCE($13, auto_advance),
+           progression_locked = COALESCE($14, progression_locked),
+           hybrid_qualifiers_count = COALESCE($15, hybrid_qualifiers_count),
            updated_at = NOW()
-       WHERE id = $10 AND business_id = $11
-       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages, updated_at`,
+       WHERE id = $16 AND business_id = $17
+       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages,
+                 progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, updated_at`,
       [
         payload.name ?? null,
         payload.format ?? null,
@@ -387,6 +430,12 @@ tournamentsRouter.patch(
         Object.prototype.hasOwnProperty.call(payload, 'home_away_stage')
           ? normalizedStages
           : null,
+        payload.progression_format ?? null,
+        payload.current_stage ?? null,
+        payload.current_round ?? null,
+        Object.prototype.hasOwnProperty.call(payload, 'auto_advance') ? Boolean(payload.auto_advance) : null,
+        Object.prototype.hasOwnProperty.call(payload, 'progression_locked') ? Boolean(payload.progression_locked) : null,
+        payload.hybrid_qualifiers_count ?? null,
         tournamentId,
         req.user.business_id,
       ],
@@ -472,7 +521,7 @@ tournamentsRouter.put(
 
     const updated = await withTransaction(async (client) => {
       const tournamentResult = await client.query(
-        `SELECT id, format, home_away_enabled, home_away_stage, home_away_stages
+      `SELECT id, format, home_away_enabled, home_away_stage, home_away_stages
          FROM tournaments
          WHERE id = $1 AND business_id = $2
          LIMIT 1`,
@@ -548,12 +597,70 @@ tournamentsRouter.post(
       `UPDATE tournaments
        SET status = 'scheduled', updated_at = NOW()
        WHERE id = $1 AND business_id = $2
-       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages, updated_at`,
+       RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages,
+                 progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, updated_at`,
       [tournamentId, req.user.business_id],
     )
 
     if (!result.rows[0]) throw new HttpError(404, 'Tournament not found')
     return res.json({ success: true, data: result.rows[0] })
+  }),
+)
+
+tournamentsRouter.get(
+  '/:id/progress',
+  authorize('ADMIN', 'STAFF'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const progress = await withTransaction(async (client) => getTournamentProgress(client, req.user.business_id, tournamentId))
+    return res.json({ success: true, data: progress })
+  }),
+)
+
+tournamentsRouter.post(
+  '/:id/generate-next-round',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const generated = await withTransaction(async (client) =>
+      generateNextRound(client, {
+        businessId: req.user.business_id,
+        tournamentId,
+        manualOverride: Boolean(req.body?.manualOverride),
+      }),
+    )
+
+    const tournamentIdChannel = tournamentChannel(tournamentId)
+    if (generated.generatedRound != null && tournamentIdChannel) {
+      await publishEvent(tournamentIdChannel, 'round:created', {
+        tournamentId,
+        round: generated.generatedRound,
+        stage: generated.stage,
+        updatedAt: new Date().toISOString(),
+      })
+    }
+
+    return res.json({
+      success: true,
+      data: generated,
+    })
+  }),
+)
+
+tournamentsRouter.patch(
+  '/:id/lock-progression',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const locked = Boolean(req.body?.locked)
+    const result = await withTransaction(async (client) =>
+      toggleProgressionLock(client, {
+        businessId: req.user.business_id,
+        tournamentId,
+        locked,
+      }),
+    )
+    return res.json({ success: true, data: result })
   }),
 )
 
@@ -608,7 +715,8 @@ tournamentsRouter.patch(
       }
 
       const refreshed = await client.query(
-        `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at
+        `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
+                stage_number, result_confirmed, winner_team_id, manual_override
          FROM tournament_matches
          WHERE id = ANY($1::bigint[])
            AND tournament_id = $2
@@ -635,7 +743,7 @@ tournamentsRouter.patch(
     const payload = parsed.data
     if (Object.keys(payload).length === 0) throw new HttpError(400, 'No fields to update')
     const previous = await query(
-      `SELECT id, home_score, away_score, status
+      `SELECT id, home_score, away_score, status, result_confirmed
        FROM tournament_matches
        WHERE id = $1
          AND tournament_id = $2
@@ -652,16 +760,23 @@ tournamentsRouter.patch(
            away_score = COALESCE($2, away_score),
            status = COALESCE($3, status),
            starts_at = COALESCE($4, starts_at),
+           result_confirmed = COALESCE($5, result_confirmed),
+           winner_team_id = COALESCE($6, winner_team_id),
+           manual_override = COALESCE($7, manual_override),
            updated_at = NOW()
-       WHERE id = $5
-         AND tournament_id = $6
-         AND business_id = $7
-       RETURNING id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at`,
+       WHERE id = $8
+         AND tournament_id = $9
+         AND business_id = $10
+       RETURNING id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
+                 stage_number, result_confirmed, winner_team_id, manual_override`,
       [
         payload.home_score ?? null,
         payload.away_score ?? null,
         payload.status ?? null,
         payload.starts_at ?? null,
+        Object.prototype.hasOwnProperty.call(payload, 'result_confirmed') ? Boolean(payload.result_confirmed) : null,
+        Object.prototype.hasOwnProperty.call(payload, 'winner_team_id') ? payload.winner_team_id ?? null : null,
+        Object.prototype.hasOwnProperty.call(payload, 'manual_override') ? Boolean(payload.manual_override) : null,
         matchId,
         tournamentId,
         req.user.business_id,
@@ -688,6 +803,8 @@ tournamentsRouter.patch(
     const previousAway = Number(previousMatch.away_score || 0)
     const previousStatus = String(previousMatch.status || '')
     const nextStatus = String(updatedMatch.status || '')
+    const previousConfirmed = Boolean(previousMatch.result_confirmed)
+    const nextConfirmed = Boolean(updatedMatch.result_confirmed)
 
     if (previousHome !== basePayload.homeScore || previousAway !== basePayload.awayScore) {
       await Promise.all([
@@ -707,6 +824,49 @@ tournamentsRouter.patch(
           matchIdChannel ? publishEvent(matchIdChannel, 'match:end', basePayload) : Promise.resolve(),
           tournamentIdChannel ? publishEvent(tournamentIdChannel, 'match:end', basePayload) : Promise.resolve(),
         ])
+      }
+    }
+
+    if (!previousConfirmed && nextConfirmed && tournamentIdChannel) {
+      await publishEvent(tournamentIdChannel, 'match:updated', {
+        tournamentId,
+        matchId,
+        updatedAt: new Date().toISOString(),
+      })
+
+      const roundProgress = await withTransaction(async (client) =>
+        evaluateRoundCompletion(client, {
+          businessId: req.user.business_id,
+          tournamentId,
+        }),
+      )
+
+      if (roundProgress.isComplete) {
+        await publishEvent(tournamentIdChannel, 'round:completed', {
+          tournamentId,
+          round: roundProgress.currentRound,
+          stage: roundProgress.currentStage,
+          updatedAt: new Date().toISOString(),
+        })
+
+        if (roundProgress.autoAdvance && !roundProgress.progressionLocked) {
+          const generated = await withTransaction(async (client) =>
+            generateNextRound(client, {
+              businessId: req.user.business_id,
+              tournamentId,
+              manualOverride: false,
+            }),
+          ).catch(() => null)
+
+          if (generated?.generatedRound != null) {
+            await publishEvent(tournamentIdChannel, 'round:created', {
+              tournamentId,
+              round: generated.generatedRound,
+              stage: generated.stage,
+              updatedAt: new Date().toISOString(),
+            })
+          }
+        }
       }
     }
 

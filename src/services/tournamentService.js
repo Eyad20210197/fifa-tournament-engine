@@ -44,3 +44,18 @@ export async function bulkScheduleMatches(tournamentId, payload) {
   const response = await apiClient.patch(`/tournaments/${tournamentId}/matches/schedule-day`, payload)
   return response.data.data
 }
+
+export async function fetchTournamentProgress(tournamentId) {
+  const response = await apiClient.get(`/tournaments/${tournamentId}/progress`)
+  return response.data?.data || null
+}
+
+export async function generateTournamentNextRound(tournamentId, payload = {}) {
+  const response = await apiClient.post(`/tournaments/${tournamentId}/generate-next-round`, payload)
+  return response.data?.data || null
+}
+
+export async function setTournamentProgressionLock(tournamentId, locked) {
+  const response = await apiClient.patch(`/tournaments/${tournamentId}/lock-progression`, { locked })
+  return response.data?.data || null
+}

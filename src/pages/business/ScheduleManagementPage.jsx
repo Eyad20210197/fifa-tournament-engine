@@ -5,10 +5,13 @@ import {
   bulkScheduleMatches,
   createTournament,
   deleteTournament,
+  fetchTournamentProgress,
   fetchTournamentDetails,
   fetchTournaments,
+  generateTournamentNextRound,
   launchTournament,
   replaceTournamentTeams,
+  setTournamentProgressionLock,
   updateMatch,
   updateTournament,
 } from '../../services/tournamentService'
@@ -169,6 +172,7 @@ export default function ScheduleManagementPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [progress, setProgress] = useState(null)
 
   async function loadTournaments() {
     const rows = await fetchTournaments()
@@ -179,6 +183,7 @@ export default function ScheduleManagementPage() {
   async function loadDetails(tournamentId) {
     if (!tournamentId) return
     const data = await fetchTournamentDetails(Number(tournamentId))
+    const progressData = await fetchTournamentProgress(Number(tournamentId)).catch(() => null)
     const financialData = await fetchFinancialSetup(Number(tournamentId)).catch(() => null)
     const financeSummaryData = await fetchFinanceSummary(Number(tournamentId)).catch(() => null)
     setDetails(data)
@@ -223,6 +228,7 @@ export default function ScheduleManagementPage() {
     setMatchTimes(nextTimes)
     setMatchesPage(1)
     setSelectedMatches([])
+    setProgress(progressData || null)
   }
 
   useEffect(() => {
@@ -440,6 +446,40 @@ export default function ScheduleManagementPage() {
       await loadDetails(selectedTournamentId)
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to launch tournament')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function refreshProgressOnly() {
+    if (!selectedTournamentId) return
+    const progressData = await fetchTournamentProgress(Number(selectedTournamentId)).catch(() => null)
+    setProgress(progressData || null)
+  }
+
+  async function onGenerateNextRound() {
+    if (!isAdmin || !selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      await generateTournamentNextRound(Number(selectedTournamentId))
+      await loadDetails(selectedTournamentId)
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to generate next round')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function onToggleProgressionLock() {
+    if (!isAdmin || !selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      await setTournamentProgressionLock(Number(selectedTournamentId), !Boolean(progress?.progressionLocked))
+      await refreshProgressOnly()
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to toggle progression lock')
     } finally {
       setSaving(false)
     }
@@ -778,6 +818,46 @@ export default function ScheduleManagementPage() {
                 <Stat label="Total Matches" value={financeSummary.total_matches} />
               </div>
             ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-base font-semibold">Progression Monitor</p>
+              <span className="text-xs text-[var(--text-secondary)]">Status: {progress?.status || '--'}</span>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              <Stat label="Current Stage" value={progress?.currentStage ?? '--'} />
+              <Stat label="Current Round" value={progress?.currentRound ?? '--'} />
+              <Stat label="Completed Matches" value={progress?.completedMatches ?? '--'} />
+              <Stat label="Total Matches" value={progress?.totalMatches ?? '--'} />
+            </div>
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                <span>Round Progress</span>
+                <span>{Number(progress?.progressPercent || 0).toFixed(2)}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div className="h-full bg-[var(--primary-color)]" style={{ width: `${Math.max(0, Math.min(100, Number(progress?.progressPercent || 0)))}%` }} />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={saving || !progress?.isComplete || progress?.progressionLocked}
+                onClick={onGenerateNextRound}
+                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+              >
+                Generate Next Round
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={onToggleProgressionLock}
+                className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm disabled:opacity-60"
+              >
+                {progress?.progressionLocked ? 'Unlock Progression' : 'Lock Progression'}
+              </button>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">

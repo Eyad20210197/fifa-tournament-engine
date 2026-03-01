@@ -299,7 +299,8 @@ export const useTournamentStore = create((set, get) => {
     generateTournament: ({ format } = {}) =>
       setState((s) => {
         const nextFormat = format ?? s.tournament.format ?? 'دوري'
-        const { matches, standings } = generateTournamentData({ teams: s.teams, format: nextFormat })
+        const sortedTeams = [...s.teams].sort((a, b) => a.teamName.localeCompare(b.teamName))
+        const { matches, standings } = generateTournamentData({ teams: sortedTeams, format: nextFormat })
         const nextStandings = nextFormat === 'دوري' ? computeStandings(s.teams, matches) : standings
         return {
           ...s,

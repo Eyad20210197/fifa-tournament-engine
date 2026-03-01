@@ -29,9 +29,6 @@ export const OpeningScreen = memo(function OpeningScreen({ allowSkip = false, on
         transition={{ duration: 0.5, ease: 'easeOut' }}
         className="flex h-full min-h-0 flex-col gap-3"
       >
-        <p className="shrink-0 text-[clamp(0.9rem,1.1vw,1.2rem)] text-[var(--text-secondary)]">الافتتاح الرسمي</p>
-        <h2 className="shrink-0 font-headline text-[clamp(1.5rem,3.4vw,4.2rem)] font-semibold leading-tight">{name || 'بطولة رمضان'}</h2>
-
         <div className="mx-auto aspect-video w-full max-w-[min(92vw,1280px)] min-h-0 overflow-hidden rounded-2xl border border-white/10 bg-black/50">
           {openingVideo?.path ? (
             <video

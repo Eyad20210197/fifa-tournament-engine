@@ -74,8 +74,7 @@ function isLikelyIncompleteLiveSnapshot(payload) {
   const matchesEmpty = Array.isArray(payload.matches) && payload.matches.length === 0
   if (!teamsEmpty && !matchesEmpty) return false
   const hasLiveMatch = payload?.liveMatchState?.matchId != null
-  const activeScreen = payload?.activeScreen
-  return Boolean(hasLiveMatch || (activeScreen && activeScreen !== 'opening'))
+  return hasLiveMatch
 }
 
 function mergedCollections(currentState, payload) {

@@ -1,3 +1,4 @@
+import { newId } from '../uuid'
 import { nextPowerOfTwo } from './roundRobin'
 
 function chunkPairs(arr) {
@@ -56,7 +57,7 @@ export function generateKnockoutMatches(teams) {
     const pairs = rounds[r - 1]
     const label = roundLabel(r, totalRounds)
     const roundMatches = pairs.map(([homeTeamId, awayTeamId], idx) => {
-      const matchId = crypto.randomUUID()
+      const matchId = newId()
       return {
         id: matchId,
         homeTeamId,

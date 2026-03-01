@@ -1,3 +1,5 @@
+import { newId } from '../uuid'
+
 function nextPowerOfTwo(n) {
   let p = 1
   while (p < n) p *= 2
@@ -35,7 +37,7 @@ export function generateRoundRobinMatches(teams) {
 
     pairs.forEach(([homeTeamId, awayTeamId], idx) => {
       matches.push({
-        id: crypto.randomUUID(),
+        id: newId(),
         homeTeamId,
         awayTeamId,
         homeScore: 0,

@@ -25,6 +25,11 @@ export async function fetchTournamentDetails(tournamentId) {
   return response.data.data
 }
 
+export async function fetchTodaysMatches(tournamentId) {
+  const response = await apiClient.get(`/tournaments/${tournamentId}/matches/today`)
+  return response.data.data
+}
+
 export async function replaceTournamentTeams(tournamentId, teams) {
   const response = await apiClient.put(`/tournaments/${tournamentId}/teams`, { teams })
   return response.data.data

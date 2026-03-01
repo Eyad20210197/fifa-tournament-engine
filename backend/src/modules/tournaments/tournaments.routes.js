@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { withTransaction, query } from '../../config/db.js'
 import { asyncHandler } from '../../utils/asyncHandler.js'
@@ -56,6 +57,7 @@ const createTournamentSchema = z.object({
   auto_advance: z.coerce.boolean().optional(),
   progression_locked: z.coerce.boolean().optional(),
   hybrid_qualifiers_count: z.coerce.number().int().min(2).max(64).optional(),
+  selected_rounds: z.array(z.coerce.number().int().positive()).optional().nullable(),
   teams: z.array(teamInputSchema).max(128).default([]),
 })
 
@@ -81,6 +83,7 @@ const updateTournamentSchema = z.object({
   auto_advance: z.coerce.boolean().optional(),
   progression_locked: z.coerce.boolean().optional(),
   hybrid_qualifiers_count: z.coerce.number().int().min(2).max(64).optional(),
+  selected_rounds: z.array(z.coerce.number().int().positive()).optional().nullable(),
 })
 
 const updateTeamsSchema = z.object({
@@ -147,25 +150,38 @@ function buildMatches(format, teams, config = {}) {
   const selectedStages = new Set((Array.isArray(config.homeAwayStages) ? config.homeAwayStages : []).map((item) => String(item || '').trim()))
 
   if (format === FORMAT_LEAGUE) {
+    const selectedRounds =
+      Array.isArray(config.selectedRounds) && config.selectedRounds.length > 0
+        ? new Set(config.selectedRounds.map(Number))
+        : null
+
     let round = 1
     for (let i = 0; i < shuffled.length; i += 1) {
       for (let j = i + 1; j < shuffled.length; j += 1) {
-        const stageName = `الجولة ${round}`
-        matches.push({
-          home_team_id: shuffled[i].id,
-          away_team_id: shuffled[j].id,
-          round_number: round,
-          stage_name: stageName,
-          leg_number: 1,
-        })
-        if (homeAwayEnabled && (selectedStages.size === 0 || selectedStages.has('league') || selectedStages.has('all'))) {
-          matches.push({
-            home_team_id: shuffled[j].id,
-            away_team_id: shuffled[i].id,
+        if (!selectedRounds || selectedRounds.has(round)) {
+          const stageName = `الجولة ${round}`
+          const homeMatch = {
+            home_team_id: shuffled[i].id,
+            away_team_id: shuffled[j].id,
             round_number: round,
             stage_name: stageName,
-            leg_number: 2,
-          })
+            leg_number: 1,
+            tie_id: null,
+          }
+          matches.push(homeMatch)
+
+          if (homeAwayEnabled && (selectedStages.size === 0 || selectedStages.has('league') || selectedStages.has('all'))) {
+            const tieId = randomUUID()
+            homeMatch.tie_id = tieId
+            matches.push({
+              home_team_id: shuffled[j].id,
+              away_team_id: shuffled[i].id,
+              round_number: round,
+              stage_name: stageName,
+              leg_number: 2,
+              tie_id: tieId,
+            })
+          }
         }
         round += 1
       }
@@ -177,43 +193,79 @@ function buildMatches(format, teams, config = {}) {
   const stageName = stageLabelFromKey(stageKey)
   const applyHomeAway = homeAwayEnabled && (selectedStages.size === 0 || selectedStages.has('all') || selectedStages.has(stageKey))
   for (let i = 0; i + 1 < shuffled.length; i += 2) {
-    matches.push({
+    const homeMatch = {
       home_team_id: shuffled[i].id,
       away_team_id: shuffled[i + 1].id,
       round_number: 1,
       stage_name: stageName,
       leg_number: 1,
-    })
+      tie_id: null,
+    }
+    matches.push(homeMatch)
+
     if (applyHomeAway) {
+      const tieId = randomUUID()
+      homeMatch.tie_id = tieId
       matches.push({
         home_team_id: shuffled[i + 1].id,
         away_team_id: shuffled[i].id,
         round_number: 1,
         stage_name: stageName,
         leg_number: 2,
+        tie_id: tieId,
       })
     }
   }
   return matches
 }
 
-async function regenerateMatches(client, { businessId, tournamentId, format, teams, homeAwayEnabled = false, homeAwayStages = [] }) {
+async function regenerateMatches(client, { businessId, tournamentId, format, teams, homeAwayEnabled = false, homeAwayStages = [], selectedRounds = [] }) {
   await client.query('DELETE FROM tournament_matches WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
   await client.query('DELETE FROM tournament_standings WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
 
   const matches = buildMatches(format, teams, {
     homeAwayEnabled,
     homeAwayStages,
+    selectedRounds,
   })
   for (const match of matches) {
     await client.query(
       `INSERT INTO tournament_matches (
          business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number,
-         stage_number, result_confirmed, winner_team_id, manual_override
+-         stage_number, result_confirmed, winner_team_id, manual_override
++         stage_number, result_confirmed, winner_team_id, manual_override, tie_id
        )
-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE)`,
-      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number],
+-       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE)`,
+-      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number],
++       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE, $8)`,
++      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number, match.tie_id],
     )
+  }
+}
+
+async function handleTwoLegTieResolution(client, { businessId, tournamentId, updatedMatch }) {
+  if (!updatedMatch.tie_id) {
+    return
+  }
+
+  const tieMatchesResult = await client.query(
+    `SELECT id, result_confirmed, is_tie_resolved FROM tournament_matches WHERE tie_id = $1 AND business_id = $2 AND tournament_id = $3`,
+    [updatedMatch.tie_id, businessId, tournamentId],
+  )
+
+  const tieMatches = tieMatchesResult.rows
+  if (tieMatches.length < 2 || tieMatches.every((m) => m.is_tie_resolved)) {
+    return
+  }
+
+  const allConfirmed = tieMatches.every((m) => m.result_confirmed)
+  if (allConfirmed) {
+    const matchIds = tieMatches.map((m) => m.id)
+    await client.query(
+      `UPDATE tournament_matches SET is_tie_resolved = TRUE, updated_at = NOW() WHERE id = ANY($1::bigint[])`,
+      [matchIds],
+    )
+    // TODO: Future logic can be added here to calculate aggregate score and update standings.
   }
 }
 
@@ -225,7 +277,7 @@ tournamentsRouter.get(
     const result = await query(
       `SELECT t.id, t.name, t.format, t.status, t.starts_at, t.ends_at, t.sponsor_logo_url, t.created_at,
               t.home_away_enabled, t.home_away_stage, t.home_away_stages,
-              t.progression_format, t.current_stage, t.current_round, t.auto_advance, t.progression_locked, t.hybrid_qualifiers_count,
+              t.progression_format, t.current_stage, t.current_round, t.auto_advance, t.progression_locked, t.hybrid_qualifiers_count, t.selected_rounds,
               COUNT(tt.id)::int AS teams_count
        FROM tournaments t
        LEFT JOIN tournament_teams tt ON tt.tournament_id = t.id AND tt.business_id = t.business_id
@@ -258,12 +310,12 @@ tournamentsRouter.post(
         `INSERT INTO tournaments (
            business_id, name, format, status, starts_at, ends_at, sponsor_logo_url,
            home_away_enabled, home_away_stage, home_away_stages,
-           progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count
+           progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, selected_rounds
          )
-         VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          RETURNING id, business_id, name, format, status, starts_at, ends_at, sponsor_logo_url,
                    home_away_enabled, home_away_stage, home_away_stages,
-                   progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, created_at`,
+                   progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, created_at, selected_rounds`,
         [
           req.user.business_id,
           payload.name,
@@ -280,6 +332,7 @@ tournamentsRouter.post(
           payload.auto_advance ?? false,
           payload.progression_locked ?? false,
           payload.hybrid_qualifiers_count ?? 4,
+          payload.selected_rounds ?? null,
         ],
       )
       const tournament = tournamentResult.rows[0]
@@ -308,6 +361,7 @@ tournamentsRouter.post(
           teams,
           homeAwayEnabled: payload.home_away_enabled ?? false,
           homeAwayStages,
+          selectedRounds: payload.selected_rounds,
         })
       }
 
@@ -324,7 +378,7 @@ tournamentsRouter.get(
     const tournamentId = Number(req.params.id)
     const tournament = await query(
       `SELECT id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages,
-              progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count
+              progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, selected_rounds
        FROM tournaments
        WHERE id = $1 AND business_id = $2
        LIMIT 1`,
@@ -364,6 +418,25 @@ tournamentsRouter.get(
         standings: standings.rows,
       },
     })
+  }),
+)
+
+tournamentsRouter.get(
+  '/:id/matches/today',
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const result = await query(
+      `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
+              stage_number, result_confirmed, winner_team_id, manual_override
+       FROM tournament_matches
+       WHERE tournament_id = $1
+         AND business_id = $2
+         AND starts_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC')
+         AND starts_at < DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day'
+       ORDER BY starts_at ASC, id ASC`,
+      [tournamentId, req.user.business_id],
+    )
+    return res.json({ success: true, data: result.rows })
   }),
 )
 
@@ -412,10 +485,11 @@ tournamentsRouter.patch(
            auto_advance = COALESCE($13, auto_advance),
            progression_locked = COALESCE($14, progression_locked),
            hybrid_qualifiers_count = COALESCE($15, hybrid_qualifiers_count),
+           selected_rounds = COALESCE($16, selected_rounds),
            updated_at = NOW()
-       WHERE id = $16 AND business_id = $17
+       WHERE id = $17 AND business_id = $18
        RETURNING id, name, format, status, starts_at, ends_at, sponsor_logo_url, home_away_enabled, home_away_stage, home_away_stages,
-                 progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, updated_at`,
+                 progression_format, current_stage, current_round, auto_advance, progression_locked, hybrid_qualifiers_count, updated_at, selected_rounds`,
       [
         payload.name ?? null,
         payload.format ?? null,
@@ -436,6 +510,7 @@ tournamentsRouter.patch(
         Object.prototype.hasOwnProperty.call(payload, 'auto_advance') ? Boolean(payload.auto_advance) : null,
         Object.prototype.hasOwnProperty.call(payload, 'progression_locked') ? Boolean(payload.progression_locked) : null,
         payload.hybrid_qualifiers_count ?? null,
+        Object.prototype.hasOwnProperty.call(payload, 'selected_rounds') ? payload.selected_rounds : null,
         tournamentId,
         req.user.business_id,
       ],
@@ -447,11 +522,12 @@ tournamentsRouter.patch(
       payload.format ||
       Object.prototype.hasOwnProperty.call(payload, 'home_away_enabled') ||
       Object.prototype.hasOwnProperty.call(payload, 'home_away_stage') ||
-      Object.prototype.hasOwnProperty.call(payload, 'home_away_stages')
+      Object.prototype.hasOwnProperty.call(payload, 'home_away_stages') ||
+      Object.prototype.hasOwnProperty.call(payload, 'selected_rounds')
     ) {
       await withTransaction(async (client) => {
         const teamsResult = await client.query(
-          `SELECT t.id, t.team_name, t.club_name, tr.format, tr.home_away_enabled, tr.home_away_stage, tr.home_away_stages
+          `SELECT t.id, t.team_name, t.club_name, tr.format, tr.home_away_enabled, tr.home_away_stage, tr.home_away_stages, tr.selected_rounds
            FROM tournament_teams t
            JOIN tournaments tr
              ON tr.id = t.tournament_id
@@ -481,6 +557,7 @@ tournamentsRouter.patch(
                 ? payload.home_away_stage
                 : base.home_away_stage,
             }),
+            selectedRounds: Object.prototype.hasOwnProperty.call(payload, 'selected_rounds') ? payload.selected_rounds : base.selected_rounds,
             teams: teamsResult.rows.map((row) => ({
               id: row.id,
               team_name: row.team_name,
@@ -753,6 +830,9 @@ tournamentsRouter.patch(
     )
     const previousMatch = previous.rows[0]
     if (!previousMatch) throw new HttpError(404, 'Match not found')
+    if (previousMatch.result_confirmed) {
+      throw new HttpError(409, 'Conflict: Match result is already confirmed and locked.')
+    }
 
     const result = await query(
       `UPDATE tournament_matches
@@ -828,46 +908,50 @@ tournamentsRouter.patch(
     }
 
     if (!previousConfirmed && nextConfirmed && tournamentIdChannel) {
-      await publishEvent(tournamentIdChannel, 'match:updated', {
-        tournamentId,
-        matchId,
-        updatedAt: new Date().toISOString(),
-      })
-
-      const roundProgress = await withTransaction(async (client) =>
-        evaluateRoundCompletion(client, {
-          businessId: req.user.business_id,
+      await withTransaction(async (client) => {
+        await publishEvent(tournamentIdChannel, 'match:updated', {
           tournamentId,
-        }),
-      )
-
-      if (roundProgress.isComplete) {
-        await publishEvent(tournamentIdChannel, 'round:completed', {
-          tournamentId,
-          round: roundProgress.currentRound,
-          stage: roundProgress.currentStage,
+          matchId,
           updatedAt: new Date().toISOString(),
         })
 
-        if (roundProgress.autoAdvance && !roundProgress.progressionLocked) {
-          const generated = await withTransaction(async (client) =>
-            generateNextRound(client, {
+        await handleTwoLegTieResolution(client, {
+          businessId: req.user.business_id,
+          tournamentId,
+          updatedMatch,
+        })
+
+        const roundProgress = await evaluateRoundCompletion(client, {
+          businessId: req.user.business_id,
+          tournamentId,
+        })
+
+        if (roundProgress.isComplete) {
+          await publishEvent(tournamentIdChannel, 'round:completed', {
+            tournamentId,
+            round: roundProgress.currentRound,
+            stage: roundProgress.currentStage,
+            updatedAt: new Date().toISOString(),
+          })
+
+          if (roundProgress.autoAdvance && !roundProgress.progressionLocked) {
+            const generated = await generateNextRound(client, {
               businessId: req.user.business_id,
               tournamentId,
               manualOverride: false,
-            }),
-          ).catch(() => null)
+            }).catch(() => null)
 
-          if (generated?.generatedRound != null) {
-            await publishEvent(tournamentIdChannel, 'round:created', {
-              tournamentId,
-              round: generated.generatedRound,
-              stage: generated.stage,
-              updatedAt: new Date().toISOString(),
-            })
+            if (generated?.generatedRound != null) {
+              await publishEvent(tournamentIdChannel, 'round:created', {
+                tournamentId,
+                round: generated.generatedRound,
+                stage: generated.stage,
+                updatedAt: new Date().toISOString(),
+              })
+            }
           }
         }
-      }
+      })
     }
 
     return res.json({ success: true, data: updatedMatch })

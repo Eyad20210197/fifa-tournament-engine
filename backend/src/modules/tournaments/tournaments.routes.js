@@ -232,13 +232,10 @@ async function regenerateMatches(client, { businessId, tournamentId, format, tea
     await client.query(
       `INSERT INTO tournament_matches (
          business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number,
--         stage_number, result_confirmed, winner_team_id, manual_override
-+         stage_number, result_confirmed, winner_team_id, manual_override, tie_id
+         stage_number, result_confirmed, winner_team_id, manual_override, tie_id
        )
--       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE)`,
--      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number],
-+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE, $8)`,
-+      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number, match.tie_id],
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE, $8)`,
+      [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number, match.tie_id],
     )
   }
 }
@@ -395,7 +392,7 @@ tournamentsRouter.get(
     )
     const matches = await query(
       `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
-              stage_number, result_confirmed, winner_team_id, manual_override
+              stage_number, result_confirmed, winner_team_id, manual_override, tie_id, is_tie_resolved
        FROM tournament_matches
        WHERE tournament_id = $1 AND business_id = $2
        ORDER BY round_number ASC, id ASC`,
@@ -427,7 +424,7 @@ tournamentsRouter.get(
     const tournamentId = Number(req.params.id)
     const result = await query(
       `SELECT id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
-              stage_number, result_confirmed, winner_team_id, manual_override
+              stage_number, result_confirmed, winner_team_id, manual_override, tie_id, is_tie_resolved
        FROM tournament_matches
        WHERE tournament_id = $1
          AND business_id = $2
@@ -848,7 +845,7 @@ tournamentsRouter.patch(
          AND tournament_id = $9
          AND business_id = $10
        RETURNING id, home_team_id, away_team_id, home_score, away_score, status, round_number, stage_name, leg_number, starts_at,
-                 stage_number, result_confirmed, winner_team_id, manual_override`,
+                 stage_number, result_confirmed, winner_team_id, manual_override, tie_id, is_tie_resolved`,
       [
         payload.home_score ?? null,
         payload.away_score ?? null,

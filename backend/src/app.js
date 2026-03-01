@@ -33,16 +33,26 @@ const apiLimiter = rateLimit({
 app.use('/api', apiLimiter)
 
 const allowAnyOrigin = env.corsAllowAllOrigins
+const whitelist = [
+  'https://fifa-ramadan-tournament-2026.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+]
 
 const corsOptions = {
-  origin: allowAnyOrigin ? true : false,
+  origin: (origin, callback) => {
+    if (allowAnyOrigin || !origin || whitelist.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }
 
 app.use(cors(corsOptions))
-app.options('*', cors(corsOptions))
 app.use(express.json({ limit: '500mb' }))
 app.use(express.urlencoded({ extended: true, limit: '500mb' }))
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'))

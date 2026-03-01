@@ -106,6 +106,10 @@ export function VideoManager() {
         {openingVideo?.path ? (
           <video
             src={openingVideo.path}
+            autoPlay
+            loop
+            muted
+            playsInline
             controls
             preload="metadata"
             className="w-full rounded-xl bg-black"

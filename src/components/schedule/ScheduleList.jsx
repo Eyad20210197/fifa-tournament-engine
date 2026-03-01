@@ -1,17 +1,32 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { formatArabicNumber } from '../../utils/format'
 import { useSwipePages } from '../../hooks/useSwipePages'
 
 const ROWS_PER_PAGE = 4
+const AR_LOCALE = 'ar-EG'
+const SCORE_STATUSES = new Set(['finished', 'ended', 'et', 'extra_time', 'penalties', 'pens'])
 
-function compareMatchesByStartTime(a, b) {
-  const aTime = Date.parse(a?.startsAt || a?.starts_at || '')
-  const bTime = Date.parse(b?.startsAt || b?.starts_at || '')
+function getMatchStartMs(match) {
+  const value = match?.startsAt || match?.starts_at || ''
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function isScoreVisible(match) {
+  return SCORE_STATUSES.has(String(match?.status || '').toLowerCase())
+}
+
+function compareMatchesForDisplay(a, b, nowMs) {
+  const aTime = getMatchStartMs(a)
+  const bTime = getMatchStartMs(b)
   const aHas = Number.isFinite(aTime)
   const bHas = Number.isFinite(bTime)
+  const aPastOrFinished = isScoreVisible(a) || (aHas && nowMs > 0 && aTime <= nowMs)
+  const bPastOrFinished = isScoreVisible(b) || (bHas && nowMs > 0 && bTime <= nowMs)
 
+  if (aPastOrFinished !== bPastOrFinished) return aPastOrFinished ? -1 : 1
   if (aHas && bHas && aTime !== bTime) return aTime - bTime
   if (aHas !== bHas) return aHas ? -1 : 1
 
@@ -26,13 +41,21 @@ export function ScheduleList() {
   const matches = useTournamentStore((s) => s.matches)
   const teams = useTournamentStore((s) => s.teams)
   const liveMatchId = useTournamentStore((s) => s.liveMatchState.matchId)
+  const [nowMs, setNowMs] = useState(0)
+
+  useEffect(() => {
+    const syncNow = () => setNowMs(Date.now())
+    syncNow()
+    const intervalId = setInterval(syncNow, 60000)
+    return () => clearInterval(intervalId)
+  }, [])
 
   const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams])
   const sorted = useMemo(() => {
     const list = (matches ?? []).slice()
-    list.sort(compareMatchesByStartTime)
+    list.sort((a, b) => compareMatchesForDisplay(a, b, nowMs))
     return list
-  }, [matches])
+  }, [matches, nowMs])
 
   const { page, pageIndex, pages, swipeHandlers } = useSwipePages(sorted, ROWS_PER_PAGE, 11000)
 
@@ -58,14 +81,20 @@ export function ScheduleList() {
               ].join(' ')}
             >
               <p className="truncate text-right font-headline text-[clamp(1.4rem,2.8vw,3.4rem)]">{teamById.get(match.homeTeamId)?.teamName || '--'}</p>
-              <div className="flex flex-col items-center gap-0.5 text-center">
-                <p className="font-latin text-[clamp(1.6rem,3.4vw,4rem)] text-[var(--secondary-color)]">
-                  {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
-                </p>
-                <p className="font-headline text-[clamp(0.8rem,1.1vw,1.2rem)] text-white/70">{formatStageName(match)}</p>
-                <p className="font-headline text-[clamp(0.85rem,1.2vw,1.4rem)] text-white/75">{statusLabel(match.status)}</p>
-                <p className="font-latin text-[clamp(0.75rem,0.95vw,1.1rem)] text-white/50">#{formatArabicNumber(match.order ?? 0)}</p>
+
+              <div className="flex flex-col items-center gap-1 text-center">
+                {isScoreVisible(match) ? (
+                  <p className="font-latin text-[clamp(1.7rem,3.6vw,4.2rem)] text-[var(--secondary-color)]">
+                    {formatArabicNumber(match.homeScore ?? 0)} : {formatArabicNumber(match.awayScore ?? 0)}
+                  </p>
+                ) : (
+                  <>
+                    <p className="font-headline text-[clamp(0.95rem,1.3vw,1.6rem)] text-white/85">{formatMatchDate(match)}</p>
+                    <p className="font-latin text-[clamp(1.05rem,1.55vw,2rem)] text-[var(--secondary-color)]">{formatMatchTime(match)}</p>
+                  </>
+                )}
               </div>
+
               <p className="truncate text-left font-headline text-[clamp(1.4rem,2.8vw,3.4rem)]">{teamById.get(match.awayTeamId)?.teamName || '--'}</p>
             </article>
           ))}
@@ -77,20 +106,24 @@ export function ScheduleList() {
   )
 }
 
-function formatStageName(match) {
-  const stage = String(match?.stageName || '').trim()
-  const leg = Number(match?.legNumber || 1)
-  if (!stage) return `الجولة ${formatArabicNumber(match?.round || 1)}`
-  if (leg === 2) return `${stage} - إياب`
-  return `${stage} - ذهاب`
+function formatMatchDate(match) {
+  const startsAt = match?.startsAt || match?.starts_at
+  if (!startsAt) return '--'
+  const date = new Date(startsAt)
+  if (Number.isNaN(date.getTime())) return '--'
+  return new Intl.DateTimeFormat(AR_LOCALE, {
+    numberingSystem: 'arab',
+    dateStyle: 'medium',
+  }).format(date)
 }
 
-function statusLabel(status) {
-  const value = String(status || '').toLowerCase()
-  if (value === 'pending') return 'Upcoming'
-  if (value === 'live') return 'Live'
-  if (value === 'finished' || value === 'ended') return 'Ended'
-  if (value === 'et' || value === 'extra_time') return 'ET'
-  if (value === 'penalties' || value === 'pens') return 'Penalties'
-  return 'Live'
+function formatMatchTime(match) {
+  const startsAt = match?.startsAt || match?.starts_at
+  if (!startsAt) return '--'
+  const date = new Date(startsAt)
+  if (Number.isNaN(date.getTime())) return '--'
+  return new Intl.DateTimeFormat(AR_LOCALE, {
+    numberingSystem: 'arab',
+    timeStyle: 'short',
+  }).format(date)
 }

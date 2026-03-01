@@ -38,6 +38,7 @@ export const OpeningScreen = memo(function OpeningScreen({ allowSkip = false, on
               key={openingVideo.path}
               src={openingVideo.path}
               autoPlay
+              loop
               muted
               playsInline
               preload="auto"

@@ -322,6 +322,8 @@ export default function BrandingPage() {
             openingVideo?.path ? (
               <video
                 src={openingVideo.path}
+                autoPlay
+                loop
                 controls
                 muted
                 playsInline

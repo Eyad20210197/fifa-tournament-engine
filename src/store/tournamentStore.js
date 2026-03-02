@@ -10,6 +10,7 @@ import {
   setMatchTimerDuration,
   startMatchTimer,
 } from '../services/liveStateService'
+import { updateMatch } from '../services/tournamentService'
 
 const DEFAULT_TIMER_DURATION_MS = 10 * 60 * 1000
 
@@ -327,19 +328,24 @@ export const useTournamentStore = create((set, get) => {
       if (!match) throw new Error('المباراة غير موجودة')
       if (!match.homeTeamId || !match.awayTeamId) throw new Error('لا يمكن بدء مباراة بدون فريقين')
 
+      const patch = { status: 'live', resultConfirmed: false, winnerTeamId: null }
+
       setState((s) => ({
         ...s,
         activeScreen: 'live',
-        matches: s.matches.map((m) =>
-          m.id === matchId
-            ? { ...m, status: 'live', resultConfirmed: false, winnerTeamId: null }
-            : m,
-        ),
+        matches: s.matches.map((m) => (m.id === matchId ? { ...m, ...patch } : m)),
         liveMatchState: { ...s.liveMatchState, matchId, goalEvents: [] },
       }))
+
+      const tournamentId = get().tournament.id
+      if (tournamentId) {
+        updateMatch(tournamentId, matchId, { status: 'live', result_confirmed: false, winner_team_id: null }).catch((err) => {
+          console.error(`Failed to persist start match for match ${matchId}:`, err)
+        })
+      }
     },
 
-    endMatch: (matchId) =>
+    endMatch: (matchId) => {
       setState((s) => {
         const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished' } : m))
         const ended = s.matches.find((m) => m.id === matchId)
@@ -351,15 +357,21 @@ export const useTournamentStore = create((set, get) => {
           standings: ended?.mode === 'league' ? computeStandings(s.teams, nextMatches) : s.standings,
           matchTimers: nextTimers,
         }
-      }),
+      })
 
-    restartMatch: (matchId) =>
+      const tournamentId = get().tournament.id
+      if (tournamentId) {
+        updateMatch(tournamentId, matchId, { status: 'finished' }).catch((err) => {
+          console.error(`Failed to persist end match for match ${matchId}:`, err)
+        })
+      }
+    },
+
+    restartMatch: (matchId) => {
+      const patch = { homeScore: 0, awayScore: 0, status: 'pending', winnerTeamId: null, resultConfirmed: false }
+
       setState((s) => {
-        const nextMatches = s.matches.map((m) =>
-          m.id === matchId
-            ? { ...m, homeScore: 0, awayScore: 0, status: 'pending', winnerTeamId: null, resultConfirmed: false }
-            : m,
-        )
+        const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, ...patch } : m))
         const restarted = s.matches.find((m) => m.id === matchId)
         const nextTimers = { ...s.matchTimers }
         delete nextTimers[matchId]
@@ -370,14 +382,32 @@ export const useTournamentStore = create((set, get) => {
           liveMatchState: s.liveMatchState.matchId === matchId ? { ...s.liveMatchState, matchId: null, goalEvents: [] } : s.liveMatchState,
           matchTimers: nextTimers,
         }
-      }),
+      })
 
-    incrementHomeScore: (matchId) =>
+      const tournamentId = get().tournament.id
+      if (tournamentId) {
+        updateMatch(tournamentId, matchId, {
+          home_score: 0,
+          away_score: 0,
+          status: 'pending',
+          winner_team_id: null,
+          result_confirmed: false,
+        }).catch((err) => {
+          console.error(`Failed to persist restart match for match ${matchId}:`, err)
+        })
+      }
+    },
+
+    incrementHomeScore: (matchId) => {
+      const state = get()
+      const match = state.matches.find((m) => m.id === matchId)
+      if (!match) return
+      if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
+
+      const patch = { homeScore: (match.homeScore ?? 0) + 1 }
+
       setState((s) => {
-        const match = s.matches.find((m) => m.id === matchId)
-        if (!match) return s
-        if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
-        const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, homeScore: (m.homeScore ?? 0) + 1 } : m))
+        const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, ...patch } : m))
         return {
           ...s,
           matches: nextMatches,
@@ -387,14 +417,26 @@ export const useTournamentStore = create((set, get) => {
             goalEvents: [...s.liveMatchState.goalEvents, { id: crypto.randomUUID(), matchId, side: 'home', at: Date.now() }],
           },
         }
-      }),
+      })
 
-    incrementAwayScore: (matchId) =>
+      const tournamentId = get().tournament.id
+      if (tournamentId) {
+        updateMatch(tournamentId, matchId, { home_score: patch.homeScore }).catch((err) => {
+          console.error(`Failed to persist home score for match ${matchId}:`, err)
+        })
+      }
+    },
+
+    incrementAwayScore: (matchId) => {
+      const state = get()
+      const match = state.matches.find((m) => m.id === matchId)
+      if (!match) return
+      if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
+
+      const patch = { awayScore: (match.awayScore ?? 0) + 1 }
+
       setState((s) => {
-        const match = s.matches.find((m) => m.id === matchId)
-        if (!match) return s
-        if (match.status !== 'live') throw new Error('ابدأ المباراة أولا')
-        const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, awayScore: (m.awayScore ?? 0) + 1 } : m))
+        const nextMatches = s.matches.map((m) => (m.id === matchId ? { ...m, ...patch } : m))
         return {
           ...s,
           matches: nextMatches,
@@ -404,7 +446,15 @@ export const useTournamentStore = create((set, get) => {
             goalEvents: [...s.liveMatchState.goalEvents, { id: crypto.randomUUID(), matchId, side: 'away', at: Date.now() }],
           },
         }
-      }),
+      })
+
+      const tournamentId = get().tournament.id
+      if (tournamentId) {
+        updateMatch(tournamentId, matchId, { away_score: patch.awayScore }).catch((err) => {
+          console.error(`Failed to persist away score for match ${matchId}:`, err)
+        })
+      }
+    },
 
     undoGoal: (matchId) =>
       setState((s) => {
@@ -436,23 +486,37 @@ export const useTournamentStore = create((set, get) => {
       const match = state.matches.find((m) => m.id === matchId)
       if (!match) throw new Error('المباراة غير موجودة')
 
+      let winnerTeamId = null
       if (match.mode === 'knockout') {
         const hs = Number(match.homeScore ?? 0)
         const as = Number(match.awayScore ?? 0)
         if (hs === as) throw new Error('لا يمكن تأكيد النتيجة في خروج مغلوب عند التعادل')
-        const winnerTeamId = hs > as ? match.homeTeamId : match.awayTeamId
+        winnerTeamId = hs > as ? match.homeTeamId : match.awayTeamId
         if (!winnerTeamId) throw new Error('لا يوجد فائز')
-        setState((s) => ({
-          ...s,
-          matches: s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished', winnerTeamId, resultConfirmed: true } : m)),
-        }))
-        return
       }
 
+      const patch = { status: 'finished', resultConfirmed: true, winnerTeamId }
+
       setState((s) => {
-        const updatedMatches = s.matches.map((m) => (m.id === matchId ? { ...m, status: 'finished', resultConfirmed: true } : m))
+        const updatedMatches = s.matches.map((m) => (m.id === matchId ? { ...m, ...patch } : m))
         return { ...s, matches: updatedMatches, standings: computeStandings(s.teams, updatedMatches) }
       })
+
+      const tournamentId = get().tournament.id
+      const updatedMatch = get().matches.find(m => m.id === matchId)
+
+      if (tournamentId && updatedMatch) {
+        const payload = {
+          home_score: updatedMatch.homeScore,
+          away_score: updatedMatch.awayScore,
+          status: updatedMatch.status,
+          result_confirmed: updatedMatch.resultConfirmed,
+          winner_team_id: updatedMatch.winnerTeamId,
+        }
+        updateMatch(tournamentId, matchId, payload).catch((err) => {
+          console.error(`Failed to persist confirmed result for match ${matchId}:`, err)
+        })
+      }
     },
 
     setTimerDurationMinutes: (minutes, matchId) => {

@@ -94,6 +94,34 @@ function defaultTournament() {
   }
 }
 
+function sortMatchesByDate(matches) {
+  if (!Array.isArray(matches)) return []
+  return [...matches].sort((a, b) => {
+    const timeA = a.starts_at ? new Date(a.starts_at).getTime() : NaN
+    const timeB = b.starts_at ? new Date(b.starts_at).getTime() : NaN
+
+    const aHasDate = !isNaN(timeA)
+    const bHasDate = !isNaN(timeB)
+
+    if (aHasDate && bHasDate) {
+      if (timeA !== timeB) return timeA - timeB
+    } else if (aHasDate) {
+      return -1 // a comes first
+    } else if (bHasDate) {
+      return 1 // b comes first
+    }
+
+    // Fallback for matches with same or no date
+    const roundA = a.round_number ?? a.round ?? 0
+    const roundB = b.round_number ?? b.round ?? 0
+    if (roundA !== roundB) {
+      return roundA - roundB
+    }
+
+    return (a.id || 0) - (b.id || 0)
+  })
+}
+
 function defaultState() {
   return {
     tournament: defaultTournament(),
@@ -196,20 +224,26 @@ export const useTournamentStore = create((set, get) => {
       if (!payload) return
       isApplyingRemote = true
       try {
-        set((s) => ({
-          ...s,
-          ...payload,
-          ...mergedCollections(s, payload),
-          sponsor: payload.sponsor ? normalizeSponsor(payload.sponsor) : s.sponsor,
-          matchTimers: payload.matchTimers ? normalizeMatchTimers(payload.matchTimers) : s.matchTimers,
-          liveMatchState: payload.liveMatchState
-            ? {
-                matchId: payload.liveMatchState.matchId ?? s.liveMatchState.matchId,
-                goalEvents: Array.isArray(payload.liveMatchState.goalEvents) ? payload.liveMatchState.goalEvents : s.liveMatchState.goalEvents,
-              }
-            : s.liveMatchState,
-          _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
-        }))
+        set((s) => {
+          const merged = mergedCollections(s, payload)
+          return {
+            ...s,
+            ...payload,
+            ...merged,
+            matches: sortMatchesByDate(merged.matches),
+            sponsor: payload.sponsor ? normalizeSponsor(payload.sponsor) : s.sponsor,
+            matchTimers: payload.matchTimers ? normalizeMatchTimers(payload.matchTimers) : s.matchTimers,
+            liveMatchState: payload.liveMatchState
+              ? {
+                  matchId: payload.liveMatchState.matchId ?? s.liveMatchState.matchId,
+                  goalEvents: Array.isArray(payload.liveMatchState.goalEvents)
+                    ? payload.liveMatchState.goalEvents
+                    : s.liveMatchState.goalEvents,
+                }
+              : s.liveMatchState,
+            _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
+          }
+        })
       } finally {
         isApplyingRemote = false
       }
@@ -297,16 +331,17 @@ export const useTournamentStore = create((set, get) => {
         teams: s.teams.filter((t) => t.id !== teamId),
       })),
 
-    generateTournament: ({ format } = {}) =>
+        generateTournament: ({ format } = {}) =>
       setState((s) => {
         const nextFormat = format ?? s.tournament.format ?? 'دوري'
         const sortedTeams = [...s.teams].sort((a, b) => a.teamName.localeCompare(b.teamName))
         const { matches, standings } = generateTournamentData({ teams: sortedTeams, format: nextFormat })
-        const nextStandings = nextFormat === 'دوري' ? computeStandings(s.teams, matches) : standings
+        const sortedMatches = sortMatchesByDate(matches)
+        const nextStandings = nextFormat === 'دوري' ? computeStandings(s.teams, sortedMatches) : standings
         return {
           ...s,
           tournament: { ...s.tournament, format: nextFormat },
-          matches,
+          matches: sortedMatches,
           standings: nextStandings,
           liveMatchState: { ...s.liveMatchState, matchId: null, goalEvents: [] },
           matchTimers: {},
@@ -622,7 +657,7 @@ export const useTournamentStore = create((set, get) => {
       })),
 
     setTeams: (teams) => setState({ teams }),
-    setMatches: (matches) => setState({ matches }),
+    setMatches: (matches) => setState({ matches: sortMatchesByDate(matches) }),
     setStandings: (standings) => setState({ standings }),
     setLiveMatchState: (liveMatchState) => setState({ liveMatchState }),
     setMatchTimers: (matchTimers) => setState((s) => ({ ...s, matchTimers: normalizeMatchTimers(matchTimers) })),

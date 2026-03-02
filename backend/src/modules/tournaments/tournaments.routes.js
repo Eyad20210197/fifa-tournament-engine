@@ -805,6 +805,100 @@ tournamentsRouter.patch(
   }),
 )
 
+tournamentsRouter.post(
+  '/:id/repair-ties',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const businessId = req.user.business_id
+
+    if (!tournamentId) {
+      throw new HttpError(400, 'Invalid tournament ID')
+    }
+
+    const createdMatches = await withTransaction(async (client) => {
+      // 1. Fetch all matches for the tournament
+      const allMatchesResult = await client.query(
+        `SELECT id, home_team_id, away_team_id, round_number, stage_name, leg_number, tie_id, stage_number
+         FROM tournament_matches
+         WHERE tournament_id = $1 AND business_id = $2`,
+        [tournamentId, businessId],
+      )
+      const allMatches = allMatchesResult.rows
+
+      // 2. Group matches by tie_id
+      const ties = new Map()
+      for (const match of allMatches) {
+        if (match.tie_id) {
+          if (!ties.has(match.tie_id)) {
+            ties.set(match.tie_id, [])
+          }
+          ties.get(match.tie_id).push(match)
+        }
+      }
+
+      const newMatches = []
+      // 3. Find incomplete ties and create missing matches
+      for (const [tieId, matchesInTie] of ties.entries()) {
+        if (matchesInTie.length === 1) {
+          const leg1Match = matchesInTie[0]
+          // Ensure we're creating a leg 2 for a leg 1, not some other leg number.
+          if (leg1Match.leg_number === 1) {
+            const leg2Match = {
+              business_id: businessId,
+              tournament_id: tournamentId,
+              home_team_id: leg1Match.away_team_id, // Swap
+              away_team_id: leg1Match.home_team_id, // Swap
+              status: 'pending',
+              round_number: leg1Match.round_number,
+              stage_name: leg1Match.stage_name,
+              leg_number: 2,
+              stage_number: leg1Match.stage_number || 1,
+              result_confirmed: false,
+              winner_team_id: null,
+              manual_override: false,
+              tie_id: tieId,
+            }
+
+            // 4. Insert the new leg 2 match
+            const insertResult = await client.query(
+              `INSERT INTO tournament_matches (
+                 business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number,
+                 stage_number, result_confirmed, winner_team_id, manual_override, tie_id
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+               RETURNING *`,
+              [
+                leg2Match.business_id,
+                leg2Match.tournament_id,
+                leg2Match.home_team_id,
+                leg2Match.away_team_id,
+                leg2Match.status,
+                leg2Match.round_number,
+                leg2Match.stage_name,
+                leg2Match.leg_number,
+                leg2Match.stage_number,
+                leg2Match.result_confirmed,
+                leg2Match.winner_team_id,
+                leg2Match.manual_override,
+                leg2Match.tie_id,
+              ],
+            )
+            newMatches.push(insertResult.rows[0])
+          }
+        }
+      }
+      return newMatches
+    })
+
+    return res.status(201).json({
+      success: true,
+      message: `Repaired ${createdMatches.length} ties by creating missing second-leg matches.`,
+      data: createdMatches,
+    })
+  }),
+)
+
 tournamentsRouter.patch(
   '/:id/matches/:matchId',
   authorize('ADMIN', 'STAFF'),

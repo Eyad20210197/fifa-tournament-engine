@@ -31,6 +31,7 @@ export const LiveMatchScreen = memo(function LiveMatchScreen() {
   const reduceMotion = useReducedMotion()
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIndex(0)
   }, [featuredMatches.length, matchId])
 

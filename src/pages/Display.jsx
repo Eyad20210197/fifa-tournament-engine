@@ -181,19 +181,9 @@ export default function Display() {
     <RamadanStage variant="display">
       <div className="mx-auto flex h-[100dvh] w-[96vw] max-w-[2400px] flex-col overflow-hidden py-2">
         <header className="mb-2 shrink-0 rounded-3xl border border-white/10 bg-black/25 px-4 py-2 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center">
+          <div className="flex items-center justify-center">
               <AnimatedHeaderLogo brandingLogoUrl={branding?.animated_logo_url} />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="rounded-full border border-[var(--primary-color)]/45 bg-[var(--primary-color)]/12 px-3 py-1 text-[clamp(0.75rem,0.95vw,1rem)] text-[var(--secondary-color)]">
-                {labels[activeScreen] || 'عرض مباشر'}
-              </span>
-              <span className="rounded-full border border-white/20 bg-black/25 px-3 py-1 text-[clamp(0.7rem,0.9vw,0.95rem)] text-white/90">
-                Realtime: {connectionStatus}
-              </span>
-            </div>
-          </div>
         </header>
 
         <AnimatePresence mode="wait">
@@ -248,7 +238,7 @@ function AnimatedHeaderLogo({ brandingLogoUrl }) {
       loop
       playsInline
       preload="auto"
-      className="hidden h-[clamp(120px,12vw,300px)] w-[clamp(320px,30vw,760px)] object-contain lg:block"
+      className="h-[clamp(120px,12vw,300px)] w-full object-cover"
       aria-label="Animated tournament logo"
     />
   )

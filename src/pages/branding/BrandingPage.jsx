@@ -128,7 +128,7 @@ export default function BrandingPage() {
       })
       setAnimatedVideo(result?.path ? result : null)
       setForm((state) => ({ ...state, animated_logo_url: String(result?.path || '').trim() }))
-      setMessage('Animated Logo (Desktop Top Bar Only) updated successfully.')
+      setMessage('Animated Logo updated. Remember to click "Save Branding" to apply changes.')
     } catch (requestError) {
       setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload animated logo')
     } finally {
@@ -286,6 +286,8 @@ export default function BrandingPage() {
             animatedVideo?.path ? (
               <video
                 src={animatedVideo.path}
+                autoPlay
+                loop
                 controls
                 muted
                 playsInline

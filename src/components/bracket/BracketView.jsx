@@ -13,7 +13,7 @@ export function BracketView() {
   const stagePages = useMemo(() => {
     const nameById = new Map(teams.map((team) => [team.id, team.teamName]))
     const knockout = matches.filter((item) => item.mode === 'knockout').slice()
-    knockout.sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.order ?? 0) - (b.order ?? 0))
+    knockout.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
 
     const grouped = new Map()
     for (const match of knockout) {
@@ -69,24 +69,58 @@ export function BracketView() {
           transition={{ duration: 0.32, ease: 'easeOut' }}
           className="grid min-h-0 flex-1 auto-rows-fr gap-3"
         >
-          {active.matches.map((match) => (
-            <article
-              key={match.id}
-              className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]"
-            >
-              <p className="truncate text-right font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.homeName}</p>
-              <div className="text-center">
-                <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
-                  {isUpcomingMatch(match.status)
-                    ? 'VS'
-                    : `${formatArabicNumber(match.homeScore ?? 0)} : ${formatArabicNumber(match.awayScore ?? 0)}`}
-                </p>
-                <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{match.legNumber === 2 ? 'إياب' : 'ذهاب'}</p>
-                <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">{statusLabel(match.status)}</p>
-              </div>
-              <p className="truncate text-left font-headline text-[clamp(1.2rem,2.4vw,2.8rem)] text-cyan-50">{match.awayName}</p>
-            </article>
-          ))}
+          {active.matches.map((match) => {
+            const isFinished = match.winner_id != null
+            const homeWon = isFinished && match.winner_id === match.homeTeamId
+            const awayWon = isFinished && match.winner_id === match.awayTeamId
+
+            const homeClasses = [
+              'truncate',
+              'text-right',
+              'font-headline',
+              'text-[clamp(1.2rem,2.4vw,2.8rem)]',
+              'text-cyan-50',
+              homeWon ? 'text-yellow-400' : '',
+              awayWon ? 'line-through' : '',
+            ]
+              .join(' ')
+              .trim()
+
+            const awayClasses = [
+              'truncate',
+              'text-left',
+              'font-headline',
+              'text-[clamp(1.2rem,2.4vw,2.8rem)]',
+              'text-cyan-50',
+              awayWon ? 'text-yellow-400' : '',
+              homeWon ? 'line-through' : '',
+            ]
+              .join(' ')
+              .trim()
+
+            return (
+              <article
+                key={match.id}
+                className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]"
+              >
+                <p className={homeClasses}>{match.homeName}</p>
+                <div className="text-center">
+                  <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
+                    {isUpcomingMatch(match.status)
+                      ? 'VS'
+                      : `${formatArabicNumber(match.homeScore ?? 0)} : ${formatArabicNumber(match.awayScore ?? 0)}`}
+                  </p>
+                  <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">
+                    {match.legNumber === 2 ? 'إياب' : 'ذهاب'}
+                  </p>
+                  <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">
+                    {statusLabel(match.status)}
+                  </p>
+                </div>
+                <p className={awayClasses}>{match.awayName}</p>
+              </article>
+            )
+          })}
         </motion.div>
       </AnimatePresence>
 

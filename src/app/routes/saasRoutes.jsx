@@ -19,6 +19,7 @@ const TeamsPage = lazy(() => import('../../pages/business/TeamsPage'))
 const ScheduleManagementPage = lazy(() => import('../../pages/business/ScheduleManagementPage'))
 const UsersPage = lazy(() => import('../../pages/business/UsersPage'))
 const SubscriptionStatusPage = lazy(() => import('../../pages/business/SubscriptionStatusPage'))
+const DeviceRuntimePage = lazy(() => import('../../pages/business/DeviceRuntimePage'))
 
 export const saasRoutes = [
   { path: '/saas/login', element: <SaasLoginPage /> },
@@ -100,6 +101,14 @@ export const saasRoutes = [
         element: (
           <RoleGuard allowedRoles={[ROLES.ADMIN]}>
             <SubscriptionStatusPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'device-runtime',
+        element: (
+          <RoleGuard allowedRoles={[ROLES.ADMIN]}>
+            <DeviceRuntimePage />
           </RoleGuard>
         ),
       },

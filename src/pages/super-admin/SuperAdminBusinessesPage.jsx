@@ -13,6 +13,7 @@ const emptyForm = {
   primary_color: '',
   secondary_color: '',
   logo_url: '',
+  ps_device_count: '0',
 }
 
 export default function SuperAdminBusinessesPage() {
@@ -30,7 +31,7 @@ export default function SuperAdminBusinessesPage() {
       const data = await fetchBusinesses()
       setBusinesses(data || [])
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر تحميل الأنشطة التجارية.')
+      setError(requestError?.response?.data?.message || 'Failed to load businesses.')
       setBusinesses([])
     } finally {
       setLoading(false)
@@ -49,6 +50,7 @@ export default function SuperAdminBusinessesPage() {
       primary_color: item.primary_color || '',
       secondary_color: item.secondary_color || '',
       logo_url: item.logo_url || '',
+      ps_device_count: String(item.ps_device_count ?? 0),
     })
   }
 
@@ -68,6 +70,7 @@ export default function SuperAdminBusinessesPage() {
         primary_color: form.primary_color.trim() || null,
         secondary_color: form.secondary_color.trim() || null,
         logo_url: form.logo_url.trim() || null,
+        ps_device_count: Math.max(0, Number(form.ps_device_count || 0)),
       }
 
       if (editingId) {
@@ -79,7 +82,7 @@ export default function SuperAdminBusinessesPage() {
       resetForm()
       await loadBusinesses()
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر حفظ بيانات النشاط.')
+      setError(requestError?.response?.data?.message || 'Failed to save business data.')
     } finally {
       setSaving(false)
     }
@@ -93,7 +96,7 @@ export default function SuperAdminBusinessesPage() {
       if (editingId === businessId) resetForm()
       await loadBusinesses()
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر حذف النشاط.')
+      setError(requestError?.response?.data?.message || 'Failed to delete business.')
     } finally {
       setSaving(false)
     }
@@ -101,37 +104,44 @@ export default function SuperAdminBusinessesPage() {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-xl font-semibold">إدارة الأنشطة التجارية</h2>
+      <h2 className="text-xl font-semibold">Business Management</h2>
 
       <form className="rounded-2xl border border-white/10 bg-white/5 p-4" onSubmit={submitForm}>
-        <p className="text-base font-semibold">{editingId ? 'تعديل نشاط' : 'إضافة نشاط جديد'}</p>
+        <p className="text-base font-semibold">{editingId ? 'Edit business' : 'Add business'}</p>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <Field
-            placeholder="اسم النشاط"
+            placeholder="Business name"
             value={form.name}
             onChange={(event) => setForm((state) => ({ ...state, name: event.target.value }))}
             required
           />
           <Field
-            placeholder="العلامة التجارية"
+            placeholder="Brand name"
             value={form.brand_name}
             onChange={(event) => setForm((state) => ({ ...state, brand_name: event.target.value }))}
           />
           <Field
-            placeholder="اللون الأساسي (مثال: #c9a227)"
+            placeholder="Primary color (example: #c9a227)"
             value={form.primary_color}
             onChange={(event) => setForm((state) => ({ ...state, primary_color: event.target.value }))}
           />
           <Field
-            placeholder="اللون الثانوي (مثال: #4e82be)"
+            placeholder="Secondary color (example: #4e82be)"
             value={form.secondary_color}
             onChange={(event) => setForm((state) => ({ ...state, secondary_color: event.target.value }))}
           />
           <Field
-            placeholder="رابط الشعار"
+            placeholder="Logo URL"
             value={form.logo_url}
             onChange={(event) => setForm((state) => ({ ...state, logo_url: event.target.value }))}
             className="md:col-span-2"
+          />
+          <Field
+            type="number"
+            min={0}
+            placeholder="PS devices count"
+            value={form.ps_device_count}
+            onChange={(event) => setForm((state) => ({ ...state, ps_device_count: event.target.value }))}
           />
         </div>
 
@@ -141,7 +151,7 @@ export default function SuperAdminBusinessesPage() {
             disabled={saving}
             className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
           >
-            {saving ? 'جار الحفظ...' : editingId ? 'حفظ التعديلات' : 'إضافة النشاط'}
+            {saving ? 'Saving...' : editingId ? 'Save edits' : 'Add business'}
           </button>
           {editingId ? (
             <button
@@ -149,7 +159,7 @@ export default function SuperAdminBusinessesPage() {
               onClick={resetForm}
               className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm"
             >
-              إلغاء التعديل
+              Cancel
             </button>
           ) : null}
         </div>
@@ -161,18 +171,19 @@ export default function SuperAdminBusinessesPage() {
         <table className="min-w-full text-right text-sm">
           <thead className="bg-white/5 text-[var(--text-secondary)]">
             <tr>
-              <th className="px-4 py-3">النشاط</th>
-              <th className="px-4 py-3">العلامة</th>
-              <th className="px-4 py-3">نهاية الاشتراك</th>
-              <th className="px-4 py-3">تاريخ الإنشاء</th>
-              <th className="px-4 py-3">إجراءات</th>
+              <th className="px-4 py-3">Business</th>
+              <th className="px-4 py-3">Brand</th>
+              <th className="px-4 py-3">PS Devices</th>
+              <th className="px-4 py-3">Subscription End</th>
+              <th className="px-4 py-3">Created At</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={5}>
-                  جار تحميل الأنشطة...
+                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={6}>
+                  Loading businesses...
                 </td>
               </tr>
             ) : businesses.length ? (
@@ -180,6 +191,7 @@ export default function SuperAdminBusinessesPage() {
                 <tr key={item.id} className="border-t border-white/10">
                   <td className="px-4 py-3">{item.name}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{item.brand_name || '--'}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{item.ps_device_count ?? 0}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{formatArabicDate(item.subscription_expires_at)}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{formatArabicDate(item.created_at)}</td>
                   <td className="px-4 py-3">
@@ -189,7 +201,7 @@ export default function SuperAdminBusinessesPage() {
                         onClick={() => startEdit(item)}
                         className="rounded-xl border border-white/15 bg-white/5 px-3 py-1 text-xs"
                       >
-                        تعديل
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -197,7 +209,7 @@ export default function SuperAdminBusinessesPage() {
                         disabled={saving}
                         className="rounded-xl border border-rose-300/40 bg-rose-500/10 px-3 py-1 text-xs text-rose-200 disabled:opacity-60"
                       >
-                        حذف
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -205,8 +217,8 @@ export default function SuperAdminBusinessesPage() {
               ))
             ) : (
               <tr>
-                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={5}>
-                  لا توجد أنشطة حاليا.
+                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={6}>
+                  No businesses found.
                 </td>
               </tr>
             )}
@@ -217,10 +229,12 @@ export default function SuperAdminBusinessesPage() {
   )
 }
 
-function Field({ value, onChange, placeholder, required = false, className = '' }) {
+function Field({ value, onChange, placeholder, required = false, className = '', type = 'text', min }) {
   return (
     <input
       className={`min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 ${className}`.trim()}
+      type={type}
+      min={min}
       value={value}
       onChange={onChange}
       placeholder={placeholder}
@@ -228,4 +242,3 @@ function Field({ value, onChange, placeholder, required = false, className = '' 
     />
   )
 }
-

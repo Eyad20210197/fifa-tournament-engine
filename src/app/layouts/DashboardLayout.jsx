@@ -25,6 +25,7 @@ const navByRole = {
   [ROLES.ADMIN]: [
     { to: '/saas', label: 'لوحة التحكم', icon: '📊' },
     { to: '/saas/schedule', label: 'إدارة البطولات', icon: '🏆' },
+    { to: '/saas/device-runtime', label: 'تشغيل الأجهزة', icon: '🕹️' },
     { to: '/saas/finance', label: 'الإدارة المالية', icon: '💰' },
     { to: '/saas/branding', label: 'تخصيص الهوية', icon: '🎨' },
     { to: '/saas/subscription-status', label: 'حالة الاشتراك', icon: '✅' },
@@ -44,6 +45,7 @@ const routeTitles = [
   { startsWith: '/saas/subscriptions', title: 'تفعيل الاشتراكات', subtitle: 'متابعة الاشتراكات وتجديدها' },
   { startsWith: '/saas/tournaments', title: 'المباريات', subtitle: 'قائمة البطولات والمباريات المرتبطة بها' },
   { startsWith: '/saas/schedule', title: 'إدارة البطولات', subtitle: 'إدارة البطولة كاملة: إنشاء، تعديل، حالة، فرق، جدول، ورعاية وتمويل' },
+  { startsWith: '/saas/device-runtime', title: 'تشغيل الأجهزة', subtitle: 'تتبع أوقات تشغيل أجهزة البلايستيشن لكل يوم وإجمالي التشغيل' },
   { startsWith: '/saas/finance', title: 'الإدارة المالية', subtitle: 'ملخص الإيرادات والمصروفات وصافي الربح' },
   { startsWith: '/saas/users', title: 'إدارة المستخدمين', subtitle: 'مراقبة حسابات الطاقم والأدوار' },
   { startsWith: '/saas/branding', title: 'تخصيص الهوية', subtitle: 'تعديل العلامة والألوان والشعار' },

@@ -90,10 +90,6 @@ export default function Control() {
         if (target?.id) {
           const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
           if (details) {
-            const todaysMatches = await fetchTodaysMatches(Number(target.id)).catch(() => null)
-            if (todaysMatches) {
-              details.matches = todaysMatches
-            }
             useTournamentStore.getState().applyRemoteState(mapDetailsToControlState(details))
             // Force a persisted snapshot refresh so stale/incomplete remote payloads are repaired.
             useTournamentStore.getState().setActiveScreen(useTournamentStore.getState().activeScreen || 'opening')

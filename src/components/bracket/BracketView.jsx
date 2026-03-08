@@ -70,9 +70,9 @@ export function BracketView() {
           className="grid min-h-0 flex-1 auto-rows-fr gap-3"
         >
           {active.matches.map((match) => {
-            const isFinished = match.winner_id != null
-            const homeWon = isFinished && match.winner_id === match.homeTeamId
-            const awayWon = isFinished && match.winner_id === match.awayTeamId
+            const isFinished = match.winner_team_id != null
+            const homeWon = isFinished && match.winner_team_id === match.homeTeamId
+            const awayWon = isFinished && match.winner_team_id === match.awayTeamId
 
             const homeClasses = [
               'truncate',

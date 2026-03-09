@@ -21,6 +21,7 @@ import {
   downloadCustomTournamentTemplate,
   readCustomTournamentWorkbook,
 } from '../../utils/tournament/workbookImport'
+import { publishTournamentDetailsToLiveState } from '../../utils/tournament/liveSnapshot'
 
 const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
@@ -234,6 +235,8 @@ export default function ScheduleManagementPage() {
     setMatchesPage(1)
     setSelectedMatches([])
     setProgress(progressData || null)
+    await publishTournamentDetailsToLiveState(data)
+    return data
   }
 
   useEffect(() => {
@@ -503,7 +506,7 @@ export default function ScheduleManagementPage() {
     setSaving(true)
     setError('')
     try {
-      await setTournamentProgressionLock(Number(selectedTournamentId), !Boolean(progress?.progressionLocked))
+      await setTournamentProgressionLock(Number(selectedTournamentId), !progress?.progressionLocked)
       await refreshProgressOnly()
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to toggle progression lock')

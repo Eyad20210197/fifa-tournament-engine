@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { RamadanStage } from '../components/common/RamadanStage'
 import { useTournamentStore } from '../store/tournamentStore'
 import { OpeningScreen } from '../components/live/OpeningScreen'
@@ -12,52 +12,11 @@ import { fetchTournamentDetails, fetchTournaments } from '../services/tournament
 import { useAuth } from '../auth/useAuth'
 import { useAblyChannel } from '../hooks/useAblyChannel'
 import { matchChannel, tournamentChannel } from '../services/channelNames'
-import { subscribeAblyConnectionStatus } from '../services/ablyRealtime'
-
-const labels = {
-  opening: 'الافتتاح',
-  live: 'مباراة مباشرة',
-  standings: 'الترتيب',
-  bracket: 'شجرة البطولة',
-  schedule: 'الجدول',
-}
-
-function mapDetailsToDisplayState(details) {
-  const format = details?.format || 'دوري'
-  const mode = format === 'خروج مغلوب' ? 'knockout' : 'league'
-
-  return {
-    tournament: {
-      id: details?.id ? Number(details.id) : null,
-      name: details?.name || 'Tournament',
-      format,
-    },
-    teams: (details?.teams || []).map((team) => ({
-      id: Number(team.id),
-      teamName: team.team_name || '--',
-      clubName: team.club_name || '',
-    })),
-    matches: (details?.matches || []).map((match, index) => ({
-      id: Number(match.id),
-      order: index + 1,
-      mode,
-      startsAt: match.starts_at || null,
-      homeTeamId: match.home_team_id ? Number(match.home_team_id) : null,
-      awayTeamId: match.away_team_id ? Number(match.away_team_id) : null,
-      homeScore: Number(match.home_score || 0),
-      awayScore: Number(match.away_score || 0),
-      status: match.status || 'pending',
-      round: Number(match.round_number || 1),
-      stageName: match.stage_name || '',
-      legNumber: Number(match.leg_number || 1),
-      resultConfirmed: false,
-      winnerTeamId: null,
-    })),
-    sponsor: {
-      urls: details?.sponsor_logo_url ? [details.sponsor_logo_url] : [],
-    },
-  }
-}
+import {
+  isLikelyIncompleteLiveSnapshot,
+  mapTournamentDetailsToLiveState,
+  mergeLiveSnapshotWithTournamentDetails,
+} from '../utils/tournament/liveSnapshot'
 
 export default function Display() {
   const hydrated = useTournamentStore((s) => s._meta.hydrated)
@@ -65,7 +24,6 @@ export default function Display() {
   const liveMatchId = useTournamentStore((s) => s.liveMatchState.matchId)
   const activeScreen = useTournamentStore((s) => s.activeScreen)
   const { branding } = useAuth()
-  const [connectionStatus, setConnectionStatus] = useState('connecting')
 
   useEffect(() => {
     const { style: htmlStyle } = document.documentElement
@@ -77,15 +35,16 @@ export default function Display() {
 
     void fetchCurrentLiveState()
       .then(async (snapshot) => {
-        const snapshotLooksIncomplete =
-          snapshot &&
-          Array.isArray(snapshot.teams) &&
-          Array.isArray(snapshot.matches) &&
-          snapshot.teams.length === 0 &&
-          snapshot.matches.length === 0 &&
-          (snapshot?.liveMatchState?.matchId != null || (snapshot.activeScreen && snapshot.activeScreen !== 'opening'))
+        if (snapshot && !isLikelyIncompleteLiveSnapshot(snapshot)) {
+          const snapshotTournamentId = Number(snapshot?.tournament?.id)
+          if (Number.isFinite(snapshotTournamentId) && snapshotTournamentId > 0) {
+            const details = await fetchTournamentDetails(snapshotTournamentId).catch(() => null)
+            if (details) {
+              useTournamentStore.getState().applyRemoteState(mergeLiveSnapshotWithTournamentDetails(snapshot, details))
+              return
+            }
+          }
 
-        if (snapshot && !snapshotLooksIncomplete) {
           useTournamentStore.getState().applyRemoteState(snapshot)
           return
         }
@@ -99,7 +58,7 @@ export default function Display() {
 
         const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
         if (details) {
-          useTournamentStore.getState().applyRemoteState(mapDetailsToDisplayState(details))
+          useTournamentStore.getState().applyRemoteState(mapTournamentDetailsToLiveState(details))
         }
       })
       .finally(() => {
@@ -109,12 +68,7 @@ export default function Display() {
         }))
       })
 
-    const unsubscribeStatus = subscribeAblyConnectionStatus((status) => {
-      setConnectionStatus(status)
-    })
-
     return () => {
-      unsubscribeStatus()
       htmlStyle.overflow = prevHtmlOverflow
       bodyStyle.overflow = prevBodyOverflow
     }
@@ -123,9 +77,18 @@ export default function Display() {
   useEffect(() => {
     const syncFromServer = async () => {
       const snapshot = await fetchCurrentLiveState().catch(() => null)
-      if (snapshot && typeof snapshot === 'object') {
-        useTournamentStore.getState().applyRemoteState(snapshot)
+      if (!snapshot || typeof snapshot !== 'object' || isLikelyIncompleteLiveSnapshot(snapshot)) return
+
+      const snapshotTournamentId = Number(snapshot?.tournament?.id)
+      if (Number.isFinite(snapshotTournamentId) && snapshotTournamentId > 0) {
+        const details = await fetchTournamentDetails(snapshotTournamentId).catch(() => null)
+        if (details) {
+          useTournamentStore.getState().applyRemoteState(mergeLiveSnapshotWithTournamentDetails(snapshot, details))
+          return
+        }
       }
+
+      useTournamentStore.getState().applyRemoteState(snapshot)
     }
 
     const intervalId = setInterval(() => {
@@ -139,7 +102,7 @@ export default function Display() {
 
   useAblyChannel(tournamentChannel(tournamentId), 'state:update', (data) => {
     const snapshot = data?.snapshot || data?.payload || data
-    if (snapshot && typeof snapshot === 'object') {
+    if (snapshot && typeof snapshot === 'object' && !isLikelyIncompleteLiveSnapshot(snapshot)) {
       useTournamentStore.getState().applyRemoteState(snapshot)
     }
   })
@@ -182,8 +145,8 @@ export default function Display() {
       <div className="mx-auto flex h-[100dvh] w-[96vw] max-w-[2400px] flex-col overflow-hidden py-2">
         <header className="mb-2 shrink-0 rounded-3xl border border-white/10 bg-black/25 px-4 py-2 backdrop-blur">
           <div className="flex items-center justify-center">
-              <AnimatedHeaderLogo brandingLogoUrl={branding?.animated_logo_url} />
-            </div>
+            <AnimatedHeaderLogo brandingLogoUrl={branding?.animated_logo_url} />
+          </div>
         </header>
 
         <AnimatePresence mode="wait">

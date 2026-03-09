@@ -97,8 +97,10 @@ function defaultTournament() {
 function sortMatchesByDate(matches) {
   if (!Array.isArray(matches)) return []
   return [...matches].sort((a, b) => {
-    const timeA = a.starts_at ? new Date(a.starts_at).getTime() : NaN
-    const timeB = b.starts_at ? new Date(b.starts_at).getTime() : NaN
+    const rawA = a.starts_at || a.startsAt
+    const rawB = b.starts_at || b.startsAt
+    const timeA = rawA ? new Date(rawA).getTime() : NaN
+    const timeB = rawB ? new Date(rawB).getTime() : NaN
 
     const aHasDate = !isNaN(timeA)
     const bHasDate = !isNaN(timeB)
@@ -153,7 +155,6 @@ function statusForRemaining(remainingMs, statusHint) {
 }
 
 export const useTournamentStore = create((set, get) => {
-  let isApplyingRemote = false
   let commitQueue = Promise.resolve()
 
   async function commit(nextState) {
@@ -222,31 +223,26 @@ export const useTournamentStore = create((set, get) => {
 
     applyRemoteState: (payload) => {
       if (!payload) return
-      isApplyingRemote = true
-      try {
-        set((s) => {
-          const merged = mergedCollections(s, payload)
-          return {
-            ...s,
-            ...payload,
-            ...merged,
-            matches: sortMatchesByDate(merged.matches),
-            sponsor: payload.sponsor ? normalizeSponsor(payload.sponsor) : s.sponsor,
-            matchTimers: payload.matchTimers ? normalizeMatchTimers(payload.matchTimers) : s.matchTimers,
-            liveMatchState: payload.liveMatchState
-              ? {
-                  matchId: payload.liveMatchState.matchId ?? s.liveMatchState.matchId,
-                  goalEvents: Array.isArray(payload.liveMatchState.goalEvents)
-                    ? payload.liveMatchState.goalEvents
-                    : s.liveMatchState.goalEvents,
-                }
-              : s.liveMatchState,
-            _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
-          }
-        })
-      } finally {
-        isApplyingRemote = false
-      }
+      set((s) => {
+        const merged = mergedCollections(s, payload)
+        return {
+          ...s,
+          ...payload,
+          ...merged,
+          matches: sortMatchesByDate(merged.matches),
+          sponsor: payload.sponsor ? normalizeSponsor(payload.sponsor) : s.sponsor,
+          matchTimers: payload.matchTimers ? normalizeMatchTimers(payload.matchTimers) : s.matchTimers,
+          liveMatchState: payload.liveMatchState
+            ? {
+                matchId: payload.liveMatchState.matchId ?? s.liveMatchState.matchId,
+                goalEvents: Array.isArray(payload.liveMatchState.goalEvents)
+                  ? payload.liveMatchState.goalEvents
+                  : s.liveMatchState.goalEvents,
+              }
+            : s.liveMatchState,
+          _meta: { ...s._meta, lastReceivedAt: Date.now(), syncEnabled: true, hydrated: true },
+        }
+      })
     },
 
     applyMatchTimerUpdate: ({ matchId, remainingMs, status, durationMs }) => {
@@ -677,13 +673,8 @@ export const useTournamentStore = create((set, get) => {
         matchTimers: normalizeMatchTimers(data.matchTimers),
       }
 
-      isApplyingRemote = true
-      try {
-        set(() => ({ ...defaultState(), ...normalizedData, _meta: { ...get()._meta, hydrated: true } }))
-        await commit({ ...get(), ...normalizedData })
-      } finally {
-        isApplyingRemote = false
-      }
+      set(() => ({ ...defaultState(), ...normalizedData, _meta: { ...get()._meta, hydrated: true } }))
+      await commit({ ...get(), ...normalizedData })
     },
 
     resetAll: async () => {

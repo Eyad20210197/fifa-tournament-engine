@@ -11,46 +11,14 @@ import { VideoManager } from '../components/common/VideoManager'
 import { useAblyChannel } from '../hooks/useAblyChannel'
 import { tournamentChannel } from '../services/channelNames'
 import { fetchCurrentLiveState } from '../services/liveStateService'
-import { fetchTournamentDetails, fetchTournaments, fetchTodaysMatches } from '../services/tournamentService'
+import { fetchTournamentDetails, fetchTournaments } from '../services/tournamentService'
 import { useAuth } from '../auth/useAuth'
 import { ROLES } from '../auth/roles'
-
-function mapDetailsToControlState(details) {
-  const format = details?.format || 'دوري'
-  const mode = format === 'خروج مغلوب' ? 'knockout' : 'league'
-
-  return {
-    tournament: {
-      id: details?.id ? Number(details.id) : null,
-      name: details?.name || 'Tournament',
-      format,
-    },
-    teams: (details?.teams || []).map((team) => ({
-      id: Number(team.id),
-      teamName: team.team_name || '--',
-      clubName: team.club_name || '',
-    })),
-    matches: (details?.matches || []).map((match, index) => ({
-      id: Number(match.id),
-      order: index + 1,
-      mode,
-      startsAt: match.starts_at || null,
-      homeTeamId: match.home_team_id ? Number(match.home_team_id) : null,
-      awayTeamId: match.away_team_id ? Number(match.away_team_id) : null,
-      homeScore: Number(match.home_score || 0),
-      awayScore: Number(match.away_score || 0),
-      status: match.status || 'pending',
-      round: Number(match.round_number || 1),
-      stageName: match.stage_name || '',
-      legNumber: Number(match.leg_number || 1),
-      resultConfirmed: false,
-      winnerTeamId: null,
-    })),
-    sponsor: {
-      urls: details?.sponsor_logo_url ? [details.sponsor_logo_url] : [],
-    },
-  }
-}
+import {
+  isLikelyIncompleteLiveSnapshot,
+  mapTournamentDetailsToLiveState,
+  mergeLiveSnapshotWithTournamentDetails,
+} from '../utils/tournament/liveSnapshot'
 
 export default function Control() {
   const { role } = useAuth()
@@ -70,15 +38,16 @@ export default function Control() {
   useEffect(() => {
     async function bootstrapControl() {
       const snapshot = await fetchCurrentLiveState().catch(() => null)
-      const snapshotLooksIncomplete =
-        snapshot &&
-        Array.isArray(snapshot.teams) &&
-        Array.isArray(snapshot.matches) &&
-        snapshot.teams.length === 0 &&
-        snapshot.matches.length === 0 &&
-        (snapshot?.liveMatchState?.matchId != null || (snapshot.activeScreen && snapshot.activeScreen !== 'opening'))
+      if (snapshot && !isLikelyIncompleteLiveSnapshot(snapshot)) {
+        const snapshotTournamentId = Number(snapshot?.tournament?.id)
+        if (Number.isFinite(snapshotTournamentId) && snapshotTournamentId > 0) {
+          const details = await fetchTournamentDetails(snapshotTournamentId).catch(() => null)
+          if (details) {
+            useTournamentStore.getState().applyRemoteState(mergeLiveSnapshotWithTournamentDetails(snapshot, details))
+            return
+          }
+        }
 
-      if (snapshot && !snapshotLooksIncomplete) {
         useTournamentStore.getState().applyRemoteState(snapshot)
       } else {
         const tournaments = await fetchTournaments().catch(() => [])
@@ -90,7 +59,7 @@ export default function Control() {
         if (target?.id) {
           const details = await fetchTournamentDetails(Number(target.id)).catch(() => null)
           if (details) {
-            useTournamentStore.getState().applyRemoteState(mapDetailsToControlState(details))
+            useTournamentStore.getState().applyRemoteState(mapTournamentDetailsToLiveState(details))
             // Force a persisted snapshot refresh so stale/incomplete remote payloads are repaired.
             useTournamentStore.getState().setActiveScreen(useTournamentStore.getState().activeScreen || 'opening')
           }
@@ -106,9 +75,18 @@ export default function Control() {
   useEffect(() => {
     const syncFromServer = async () => {
       const snapshot = await fetchCurrentLiveState().catch(() => null)
-      if (snapshot && typeof snapshot === 'object') {
-        useTournamentStore.getState().applyRemoteState(snapshot)
+      if (!snapshot || typeof snapshot !== 'object' || isLikelyIncompleteLiveSnapshot(snapshot)) return
+
+      const snapshotTournamentId = Number(snapshot?.tournament?.id)
+      if (Number.isFinite(snapshotTournamentId) && snapshotTournamentId > 0) {
+        const details = await fetchTournamentDetails(snapshotTournamentId).catch(() => null)
+        if (details) {
+          useTournamentStore.getState().applyRemoteState(mergeLiveSnapshotWithTournamentDetails(snapshot, details))
+          return
+        }
       }
+
+      useTournamentStore.getState().applyRemoteState(snapshot)
     }
 
     const intervalId = setInterval(() => {
@@ -122,7 +100,7 @@ export default function Control() {
 
   useAblyChannel(tournamentChannel(tournamentId), 'state:update', (data) => {
     const snapshot = data?.snapshot || data?.payload || data
-    if (snapshot && typeof snapshot === 'object') {
+    if (snapshot && typeof snapshot === 'object' && !isLikelyIncompleteLiveSnapshot(snapshot)) {
       useTournamentStore.getState().applyRemoteState(snapshot)
     }
   })

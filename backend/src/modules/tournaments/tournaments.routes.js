@@ -90,6 +90,28 @@ const updateTeamsSchema = z.object({
   teams: z.array(teamInputSchema).min(2).max(128),
 })
 
+const customScheduleTeamSchema = z.object({
+  ref: z.string().min(1).max(120),
+  team_name: z.string().min(1).max(255),
+  club_name: z.string().max(255).optional().nullable(),
+})
+
+const customScheduleMatchSchema = z.object({
+  home_team_ref: z.string().min(1).max(120),
+  away_team_ref: z.string().min(1).max(120),
+  round_number: z.coerce.number().int().positive().optional(),
+  stage_name: z.string().max(120).optional().nullable(),
+  stage_number: z.coerce.number().int().positive().optional(),
+  leg_number: z.coerce.number().int().positive().optional(),
+  starts_at: optionalDateTimeSchema.optional(),
+  tie_key: z.string().max(120).optional().nullable(),
+})
+
+const importCustomScheduleSchema = z.object({
+  teams: z.array(customScheduleTeamSchema).min(2).max(128),
+  matches: z.array(customScheduleMatchSchema).min(1).max(4096),
+})
+
 const updateMatchSchema = z.object({
   home_score: z.coerce.number().int().nonnegative().optional(),
   away_score: z.coerce.number().int().nonnegative().optional(),
@@ -237,6 +259,118 @@ async function regenerateMatches(client, { businessId, tournamentId, format, tea
        VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, 1, FALSE, NULL, FALSE, $8)`,
       [businessId, tournamentId, match.home_team_id, match.away_team_id, match.round_number, match.stage_name, match.leg_number, match.tie_id],
     )
+  }
+}
+
+async function replaceTournamentWithCustomSchedule(client, { businessId, tournamentId, teams, matches }) {
+  const duplicateRefs = new Set()
+  const seenRefs = new Set()
+  for (const team of teams) {
+    const ref = String(team.ref || '').trim()
+    if (seenRefs.has(ref)) duplicateRefs.add(ref)
+    seenRefs.add(ref)
+  }
+  if (duplicateRefs.size > 0) {
+    throw new HttpError(400, `Duplicate team refs found: ${[...duplicateRefs].join(', ')}`)
+  }
+
+  const tournamentResult = await client.query(
+    `SELECT id
+     FROM tournaments
+     WHERE id = $1 AND business_id = $2
+     LIMIT 1`,
+    [tournamentId, businessId],
+  )
+  if (!tournamentResult.rows[0]) throw new HttpError(404, 'Tournament not found')
+
+  await client.query('DELETE FROM tournament_matches WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
+  await client.query('DELETE FROM tournament_standings WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
+  await client.query('DELETE FROM tournament_teams WHERE tournament_id = $1 AND business_id = $2', [tournamentId, businessId])
+
+  const teamIdByRef = new Map()
+  const createdTeams = []
+  for (const team of teams) {
+    const result = await client.query(
+      `INSERT INTO tournament_teams (business_id, tournament_id, team_name, club_name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, team_name, club_name`,
+      [businessId, tournamentId, team.team_name, team.club_name || null],
+    )
+    const created = result.rows[0]
+    teamIdByRef.set(team.ref, created.id)
+    createdTeams.push(created)
+  }
+
+  const tieIdByKey = new Map()
+  let matchesCreated = 0
+  let currentStage = null
+  let currentRound = null
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index]
+    const rowNumber = index + 1
+    if (match.home_team_ref === match.away_team_ref) {
+      throw new HttpError(400, `Match ${rowNumber} has the same home and away team`)
+    }
+
+    const homeTeamId = teamIdByRef.get(match.home_team_ref)
+    const awayTeamId = teamIdByRef.get(match.away_team_ref)
+    if (!homeTeamId) throw new HttpError(400, `Unknown home team ref "${match.home_team_ref}" in match ${rowNumber}`)
+    if (!awayTeamId) throw new HttpError(400, `Unknown away team ref "${match.away_team_ref}" in match ${rowNumber}`)
+
+    let tieId = null
+    if (match.tie_key) {
+      tieId = tieIdByKey.get(match.tie_key)
+      if (!tieId) {
+        tieId = randomUUID()
+        tieIdByKey.set(match.tie_key, tieId)
+      }
+    }
+
+    const stageNumber = match.stage_number ?? 1
+    const roundNumber = match.round_number ?? 1
+    if (
+      currentStage == null ||
+      stageNumber < currentStage ||
+      (stageNumber === currentStage && roundNumber < currentRound)
+    ) {
+      currentStage = stageNumber
+      currentRound = roundNumber
+    }
+
+    await client.query(
+      `INSERT INTO tournament_matches (
+         business_id, tournament_id, home_team_id, away_team_id, status, round_number, stage_name, leg_number,
+         starts_at, stage_number, result_confirmed, winner_team_id, manual_override, tie_id, is_tie_resolved
+       )
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, FALSE, NULL, FALSE, $10, FALSE)`,
+      [
+        businessId,
+        tournamentId,
+        homeTeamId,
+        awayTeamId,
+        roundNumber,
+        match.stage_name || null,
+        match.leg_number ?? 1,
+        match.starts_at || null,
+        stageNumber,
+        tieId,
+      ],
+    )
+    matchesCreated += 1
+  }
+
+  await client.query(
+    `UPDATE tournaments
+     SET current_stage = $1,
+         current_round = $2,
+         updated_at = NOW()
+     WHERE id = $3 AND business_id = $4`,
+    [currentStage ?? 1, currentRound ?? 1, tournamentId, businessId],
+  )
+
+  return {
+    teams: createdTeams,
+    matchesCreated,
   }
 }
 
@@ -642,6 +776,27 @@ tournamentsRouter.put(
     })
 
     return res.json({ success: true, data: updated })
+  }),
+)
+
+tournamentsRouter.put(
+  '/:id/custom-schedule',
+  authorize('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const tournamentId = Number(req.params.id)
+    const parsed = importCustomScheduleSchema.safeParse(req.body || {})
+    if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
+
+    const imported = await withTransaction(async (client) =>
+      replaceTournamentWithCustomSchedule(client, {
+        businessId: req.user.business_id,
+        tournamentId,
+        teams: parsed.data.teams,
+        matches: parsed.data.matches,
+      }),
+    )
+
+    return res.json({ success: true, data: imported })
   }),
 )
 

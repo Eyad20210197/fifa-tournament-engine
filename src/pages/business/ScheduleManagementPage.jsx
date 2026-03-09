@@ -9,6 +9,7 @@ import {
   fetchTournamentDetails,
   fetchTournaments,
   generateTournamentNextRound,
+  importTournamentCustomSchedule,
   launchTournament,
   replaceTournamentTeams,
   setTournamentProgressionLock,
@@ -16,6 +17,10 @@ import {
   updateTournament,
 } from '../../services/tournamentService'
 import { deleteFinancialSetup, fetchFinancialSetup, fetchFinanceSummary, upsertFinancialSetup } from '../../services/financeService'
+import {
+  downloadCustomTournamentTemplate,
+  readCustomTournamentWorkbook,
+} from '../../utils/tournament/workbookImport'
 
 const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
@@ -127,7 +132,8 @@ async function downloadTeamsExcel(teams, fileName = 'teams.xlsx') {
 export default function ScheduleManagementPage() {
   const { role } = useAuth()
   const isAdmin = role === ROLES.ADMIN
-  const importRef = useRef(null)
+  const teamsImportRef = useRef(null)
+  const scheduleImportRef = useRef(null)
 
   const [tournaments, setTournaments] = useState([])
   const [selectedTournamentId, setSelectedTournamentId] = useState('')
@@ -288,7 +294,29 @@ export default function ScheduleManagementPage() {
     } catch (e) {
       setError(e?.message || 'Failed to import teams')
     } finally {
-      if (importRef.current) importRef.current.value = ''
+      if (teamsImportRef.current) teamsImportRef.current.value = ''
+    }
+  }
+
+  async function onImportCustomSchedule(file) {
+    if (!file || !selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      const imported = await readCustomTournamentWorkbook(file)
+      if (imported.teams.length > MAX_TEAMS) {
+        setError(`Maximum ${MAX_TEAMS} teams are allowed`)
+        return
+      }
+
+      await importTournamentCustomSchedule(Number(selectedTournamentId), imported)
+      await loadDetails(selectedTournamentId)
+      await loadTournaments()
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to import custom schedule')
+    } finally {
+      setSaving(false)
+      if (scheduleImportRef.current) scheduleImportRef.current.value = ''
     }
   }
 
@@ -861,16 +889,51 @@ export default function ScheduleManagementPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-base font-semibold">Custom Schedule Import</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Upload a workbook with `Teams` and `Matches` sheets. This replaces the selected tournament&apos;s teams, matches, and standings.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={scheduleImportRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => onImportCustomSchedule(event.target.files?.[0])}
+                />
+                <button
+                  type="button"
+                  disabled={saving || !selectedTournamentId}
+                  onClick={() => scheduleImportRef.current?.click()}
+                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs disabled:opacity-60"
+                >
+                  Import Workbook
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadCustomTournamentTemplate()}
+                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
+                >
+                  Download Custom Template
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-base font-semibold">Teams</p>
               <div className="flex flex-wrap gap-2">
                 <input
-                  ref={importRef}
+                  ref={teamsImportRef}
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   className="hidden"
                   onChange={(event) => onImportTeams(event.target.files?.[0])}
                 />
-                <button type="button" onClick={() => importRef.current?.click()} className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs">
+                <button type="button" onClick={() => teamsImportRef.current?.click()} className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs">
                   Import Excel
                 </button>
                 <button
@@ -1056,7 +1119,7 @@ export default function ScheduleManagementPage() {
               ) : (
                 <tr>
                   <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={isAdmin ? 5 : 3}>
-                    No matches yet. Save teams first to generate fixtures.
+                    No matches yet. Save teams first to generate fixtures or import a custom workbook.
                   </td>
                 </tr>
               )}

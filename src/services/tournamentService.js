@@ -35,6 +35,11 @@ export async function replaceTournamentTeams(tournamentId, teams) {
   return response.data.data
 }
 
+export async function importTournamentCustomSchedule(tournamentId, payload) {
+  const response = await apiClient.put(`/tournaments/${tournamentId}/custom-schedule`, payload)
+  return response.data.data
+}
+
 export async function launchTournament(tournamentId) {
   const response = await apiClient.post(`/tournaments/${tournamentId}/launch`)
   return response.data.data

@@ -1,11 +1,16 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/useAuth'
+import { useLanguage } from '../../i18n/LanguageContext'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 export default function SaasLoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { login, isAuthenticated, role } = useAuth()
+  const { t, language, toggleLanguage, isRtl } = useLanguage()
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -28,7 +33,7 @@ export default function SaasLoginPage() {
       const normalizedPassword = password.trim()
 
       if (!normalizedUsername || !normalizedPassword) {
-        setError('يرجى إدخال اسم المستخدم وكلمة المرور.')
+        setError(language === 'ar' ? 'يرجى إدخال اسم المستخدم وكلمة المرور.' : 'Please enter username and password.')
         return
       }
 
@@ -39,13 +44,13 @@ export default function SaasLoginPage() {
     } catch (requestError) {
       const backendMessage = String(requestError?.response?.data?.message || '').toLowerCase()
       if (backendMessage.includes('subscription expired')) {
-        setError('انتهى الاشتراك. يرجى التواصل مع الدعم.')
+        setError(language === 'ar' ? 'انتهى الاشتراك. يرجى التواصل مع الدعم.' : 'Subscription expired. Please contact support.')
       } else if (backendMessage.includes('invalid credentials')) {
-        setError('بيانات الدخول غير صحيحة.')
+        setError(language === 'ar' ? 'بيانات الدخول غير صحيحة.' : 'Invalid credentials.')
       } else if (requestError?.response?.status === 400) {
-        setError('تحقق من بيانات تسجيل الدخول ثم حاول مرة أخرى.')
+        setError(language === 'ar' ? 'تحقق من بيانات تسجيل الدخول ثم حاول مرة أخرى.' : 'Please check your login details and try again.')
       } else {
-        setError('تعذر تسجيل الدخول حاليا. حاول لاحقا.')
+        setError(language === 'ar' ? 'تعذر تسجيل الدخول حاليا. حاول لاحقا.' : 'Unable to sign in right now. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -53,58 +58,93 @@ export default function SaasLoginPage() {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <form
-        className="w-full max-w-md rounded-3xl border border-white/10 bg-[var(--surface-card)]/80 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur md:p-8"
-        onSubmit={onSubmit}
-      >
-        <div className="mb-6 text-center">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl border border-[var(--primary-color)]/35 bg-[var(--primary-color)]/10 text-2xl">
-            🏆
-          </div>
-          <h1 className="mt-4 text-2xl font-semibold">تسجيل الدخول</h1>
-          <p className="mt-2 text-sm text-[var(--text-secondary)]">منصة إدارة البطولات متعددة المستأجرين</p>
-        </div>
-
-        {error ? (
-          <p className="mb-4 rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p>
-        ) : null}
-
-        <label className="mb-2 block text-sm text-[var(--text-secondary)]" htmlFor="username">
-          اسم المستخدم
-        </label>
-        <input
-          id="username"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          className="mb-4 min-h-11 w-full rounded-2xl border border-white/15 bg-black/25 px-3 py-2 outline-none transition focus:border-[var(--primary-color)]/70"
-          placeholder="أدخل اسم المستخدم"
-          autoComplete="username"
-          required
-        />
-
-        <label className="mb-2 block text-sm text-[var(--text-secondary)]" htmlFor="password">
-          كلمة المرور
-        </label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className="mb-6 min-h-11 w-full rounded-2xl border border-white/15 bg-black/25 px-3 py-2 outline-none transition focus:border-[var(--primary-color)]/70"
-          placeholder="أدخل كلمة المرور"
-          autoComplete="current-password"
-          required
-        />
-
+    <div className="relative grid min-h-screen place-items-center px-4 py-8">
+      {/* Language Switcher Floating in Top Corner */}
+      <div className={`fixed top-4 z-50 ${isRtl ? 'left-4' : 'right-4'}`}>
         <button
-          type="submit"
-          className="min-h-11 w-full rounded-2xl bg-[var(--primary-color)] px-3 py-2 font-semibold text-[#07162b] transition hover:brightness-105 disabled:opacity-70"
-          disabled={loading}
+          type="button"
+          onClick={toggleLanguage}
+          className="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-slate-950/80 px-3.5 py-2 text-xs font-bold text-sky-300 shadow-[0_0_15px_rgba(56,189,248,0.2)] backdrop-blur-md transition hover:bg-sky-500/20 active:scale-95"
         >
-          {loading ? 'جار تسجيل الدخول...' : 'دخول'}
+          <AppIcon name="globe" size={15} className="text-sky-400" />
+          <span>{language === 'ar' ? 'English' : 'عربي'}</span>
         </button>
-      </form>
+      </div>
+
+      <SpotlightCard className="w-full max-w-md border border-white/10 bg-slate-950/85 p-6 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.6)] md:p-8">
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-sky-400/40 bg-sky-500/20 text-sky-400 shadow-[0_0_25px_rgba(56,189,248,0.3)]">
+              <AppIcon name="trophy" size={32} />
+            </div>
+            <h1 className="mt-4 text-2xl font-black text-white tracking-tight">
+              <ShinyText text={t('appName')} />
+            </h1>
+            <p className="mt-1 text-xs text-slate-400">{t('appSubtitle')}</p>
+          </div>
+
+          {error ? (
+            <div className="flex items-center gap-2.5 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3 text-xs font-bold text-rose-200">
+              <AppIcon name="alert" size={16} className="text-rose-400 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-slate-300" htmlFor="username">
+              {language === 'ar' ? 'اسم المستخدم' : 'Username'}
+            </label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 flex items-center px-3 text-slate-400">
+                <AppIcon name="user" size={16} />
+              </div>
+              <input
+                id="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className={`w-full rounded-xl border border-white/15 bg-slate-900/90 py-2.5 text-sm text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none ${isRtl ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
+                placeholder={language === 'ar' ? 'أدخل اسم المستخدم (مثال: admin)' : 'Enter username (e.g. admin)'}
+                autoComplete="username"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-bold text-slate-300" htmlFor="password">
+              {language === 'ar' ? 'كلمة المرور' : 'Password'}
+            </label>
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-y-0 flex items-center px-3 text-slate-400">
+                <AppIcon name="lock" size={16} />
+              </div>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`w-full rounded-xl border border-white/15 bg-slate-900/90 py-2.5 text-sm text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none ${isRtl ? 'pr-9 pl-3' : 'pl-9 pr-3'}`}
+                placeholder={language === 'ar' ? 'أدخل كلمة المرور (مثال: Admin@123)' : 'Enter password'}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-xl border border-sky-400 bg-sky-500 py-3 text-sm font-bold text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)] transition hover:bg-sky-400 disabled:opacity-50 active:scale-95"
+          >
+            {loading ? t('loading') : (language === 'ar' ? 'تسجيل الدخول إلى المنصة' : 'Sign In to Arena')}
+          </button>
+
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center text-[11px] text-slate-400">
+            <span className="font-semibold text-slate-300">{language === 'ar' ? 'حساب تجريبي افتراضي:' : 'Default Demo Login:'}</span>
+            <span className="mx-1 text-sky-400 font-mono">admin</span> / <span className="text-amber-400 font-mono">Admin@123</span>
+          </div>
+        </form>
+      </SpotlightCard>
     </div>
   )
 }

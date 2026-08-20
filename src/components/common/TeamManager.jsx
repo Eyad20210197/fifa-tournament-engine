@@ -1,7 +1,8 @@
-﻿import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useTournamentStore } from '../../store/tournamentStore'
 import { readFileAsDataURL } from '../../utils/files'
+import AppIcon from './AppIcon'
 
 export function TeamManager() {
   const teams = useTournamentStore((s) => s.teams)
@@ -80,7 +81,7 @@ function TeamCard({ team, onEdit, onDelete }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-12 w-12 flex-none place-items-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-            {team.logo ? <img alt="شعار الفريق" src={team.logo} className="h-full w-full object-cover" /> : <span>⚽</span>}
+            {team.logo ? <img alt="شعار الفريق" src={team.logo} className="h-full w-full object-cover" /> : <AppIcon name="soccer" size={20} className="text-sky-400" />}
           </div>
           <div className="min-w-0">
             <p className="truncate text-base font-semibold">{team.teamName || 'بدون اسم'}</p>

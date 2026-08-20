@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchDeviceRuntimeSnapshot, updateDeviceStatus } from '../../services/deviceRuntimeService'
+import { useLanguage } from '../../i18n/LanguageContext'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 function formatDuration(totalSeconds) {
   const safe = Math.max(0, Number(totalSeconds) || 0)
@@ -11,6 +15,7 @@ function formatDuration(totalSeconds) {
 }
 
 export default function DeviceRuntimePage() {
+  const { t, language, isRtl } = useLanguage()
   const [snapshot, setSnapshot] = useState({
     deviceCount: 0,
     devices: [],
@@ -24,10 +29,7 @@ export default function DeviceRuntimePage() {
   const [tick, setTick] = useState(0)
 
   async function loadSnapshot({ silent = false } = {}) {
-    if (!silent) {
-      setLoading(true)
-    }
-
+    if (!silent) setLoading(true)
     try {
       const data = await fetchDeviceRuntimeSnapshot()
       setSnapshot(
@@ -41,32 +43,20 @@ export default function DeviceRuntimePage() {
       setSnapshotAt(Date.now())
       setError('')
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'Failed to load device runtime data.')
+      setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر تحميل بيانات الأجهزة.' : 'Failed to load device runtime data.'))
     } finally {
-      if (!silent) {
-        setLoading(false)
-      }
+      if (!silent) setLoading(false)
     }
   }
 
   useEffect(() => {
     void loadSnapshot()
-  }, [])
-
-  useEffect(() => {
-    const refreshId = setInterval(() => {
-      void loadSnapshot({ silent: true })
-    }, 15000)
-
-    return () => clearInterval(refreshId)
-  }, [])
-
-  useEffect(() => {
-    const tickId = setInterval(() => {
-      setTick(Date.now())
-    }, 1000)
-
-    return () => clearInterval(tickId)
+    const refreshId = setInterval(() => void loadSnapshot({ silent: true }), 15000)
+    const tickId = setInterval(() => setTick(Date.now()), 1000)
+    return () => {
+      clearInterval(refreshId)
+      clearInterval(tickId)
+    }
   }, [])
 
   const elapsedSinceSnapshot = Math.max(0, Math.floor((tick - snapshotAt) / 1000))
@@ -96,121 +86,137 @@ export default function DeviceRuntimePage() {
         await loadSnapshot({ silent: true })
       }
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'Failed to update device status.')
+      setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر تحديث حالة الجهاز.' : 'Failed to update device status.'))
     } finally {
       setTogglingDevice(null)
     }
   }
 
   return (
-    <section className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Configured devices" value={snapshot.deviceCount || 0} />
-        <StatCard label="Currently online" value={snapshot.totals?.currentlyOnlineCount || 0} />
-        <StatCard label="Total ON time" value={formatDuration(computedTotalOnSeconds)} />
+    <section className="space-y-6">
+      {/* Title & KPI Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/40 bg-indigo-500/20 text-indigo-400">
+            <AppIcon name="gamepad" size={22} />
+          </div>
+          <div>
+            <ShinyText text={t('deviceRuntimeTitle')} className="text-xl font-black text-white" />
+            <p className="text-xs text-slate-400">{t('appSubtitle')}</p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void loadSnapshot()}
+          className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-white/10 active:scale-95"
+        >
+          <AppIcon name="refresh" size={14} />
+          <span>{t('refresh')}</span>
+        </button>
       </div>
 
-      {error ? <p className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
+      {/* KPI Cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SpotlightCard className="border border-sky-500/30 bg-slate-950/80 p-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>{language === 'ar' ? 'إجمالي الأجهزة المعرفة' : 'Configured Consoles'}</span>
+            <AppIcon name="gamepad" size={18} className="text-sky-400" />
+          </div>
+          <p className="mt-2 text-2xl font-black text-white">{snapshot.deviceCount || 0} PS5</p>
+        </SpotlightCard>
 
+        <SpotlightCard className="border border-emerald-500/30 bg-slate-950/80 p-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>{language === 'ar' ? 'أجهزة قيد التشغيل حالياً' : 'Currently Active Online'}</span>
+            <AppIcon name="activity" size={18} className="text-emerald-400" />
+          </div>
+          <p className="mt-2 text-2xl font-black text-emerald-400">{snapshot.totals?.currentlyOnlineCount || 0}</p>
+        </SpotlightCard>
+
+        <SpotlightCard className="border border-amber-500/30 bg-slate-950/80 p-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>{t('todayTotalRuntime')}</span>
+            <AppIcon name="timer" size={18} className="text-amber-400" />
+          </div>
+          <p className="mt-2 text-2xl font-black text-amber-300 font-mono">{formatDuration(computedTotalOnSeconds)}</p>
+        </SpotlightCard>
+      </div>
+
+      {error ? (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/50 bg-rose-500/15 p-3.5 text-xs font-bold text-rose-200">
+          <AppIcon name="alert" size={16} className="text-rose-400" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {/* Devices Grid */}
       {loading ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-[var(--text-secondary)]">Loading devices...</div>
+        <div className="py-12 text-center text-xs text-slate-400">{t('loading')}</div>
       ) : snapshot.deviceCount > 0 ? (
-        <>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold">Devices</h2>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {liveDevices.map((device) => (
+            <SpotlightCard
+              key={device.deviceNumber}
+              className={`border transition-all ${
+                device.isOnline
+                  ? 'border-emerald-500/40 bg-slate-950/90 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+                  : 'border-white/10 bg-slate-950/70'
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <AppIcon name="gamepad" size={18} className={device.isOnline ? 'text-emerald-400' : 'text-slate-500'} />
+                  <span className="text-sm font-black text-white">PS5 Station #{device.deviceNumber}</span>
+                </div>
+                <span
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
+                    device.isOnline
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-slate-800 text-slate-400 border border-white/10'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${device.isOnline ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
+                  {device.isOnline ? t('online') : t('offline')}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-1.5 text-xs text-slate-400">
+                <div className="flex items-center justify-between">
+                  <span>{t('currentSessionTime')}:</span>
+                  <strong className="text-emerald-300 font-mono text-sm">{formatDuration(device.displayCurrentOnlineSeconds)}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>{t('todayTotalRuntime')}:</span>
+                  <strong className="text-white font-mono">{formatDuration(device.displayTotalOnSeconds)}</strong>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => void loadSnapshot()}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
+                disabled={togglingDevice === device.deviceNumber}
+                onClick={() => void toggleDeviceStatus(device.deviceNumber, !device.isOnline)}
+                className={`mt-4 w-full rounded-xl py-2.5 text-xs font-bold transition active:scale-95 disabled:opacity-50 ${
+                  device.isOnline
+                    ? 'border border-rose-500/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25'
+                    : 'border border-emerald-400 bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] hover:bg-emerald-400'
+                }`}
               >
-                Refresh
+                {togglingDevice === device.deviceNumber
+                  ? t('loading')
+                  : device.isOnline
+                  ? t('stopSession')
+                  : t('startSession')}
               </button>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {liveDevices.map((device) => (
-                <article key={device.deviceNumber} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold">PS Device #{device.deviceNumber}</p>
-                    <span
-                      className={[
-                        'rounded-full px-3 py-1 text-xs font-semibold',
-                        device.isOnline ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-500/20 text-slate-200',
-                      ].join(' ')}
-                    >
-                      {device.isOnline ? 'Online' : 'Offline'}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 space-y-1 text-sm text-[var(--text-secondary)]">
-                    <p>Current session: {formatDuration(device.displayCurrentOnlineSeconds)}</p>
-                    <p>Total on time: {formatDuration(device.displayTotalOnSeconds)}</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={togglingDevice === device.deviceNumber}
-                    onClick={() => void toggleDeviceStatus(device.deviceNumber, !device.isOnline)}
-                    className={[
-                      'mt-3 w-full rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-60',
-                      device.isOnline ? 'border border-rose-300/40 bg-rose-500/10 text-rose-200' : 'bg-emerald-400 text-[#04220f]',
-                    ].join(' ')}
-                  >
-                    {togglingDevice === device.deviceNumber
-                      ? 'Saving...'
-                      : device.isOnline
-                        ? 'Go Offline'
-                        : 'Go Online'}
-                  </button>
-                </article>
-              ))}
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-            <table className="min-w-full text-right text-sm">
-              <thead className="bg-white/5 text-[var(--text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">Day</th>
-                  <th className="px-4 py-3">Devices ON</th>
-                  <th className="px-4 py-3">Total ON time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.dailySummary?.length ? (
-                  snapshot.dailySummary.map((row) => (
-                    <tr key={row.day} className="border-t border-white/10">
-                      <td className="px-4 py-3">{row.day}</td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)]">{row.devicesOnCount}</td>
-                      <td className="px-4 py-3 text-[var(--text-secondary)]">{formatDuration(row.totalOnSeconds)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={3}>
-                      No runtime sessions yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      ) : (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-[var(--text-secondary)]">
-          No devices are configured for this business yet. Ask Super Admin to set the PS devices count.
+            </SpotlightCard>
+          ))}
         </div>
+      ) : (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 py-12 text-center text-xs text-slate-400">
+          <AppIcon name="gamepad" size={36} className="mx-auto mb-2 text-slate-600" />
+          <p>{language === 'ar' ? 'لم يتم تحديد عدد الأجهزة بعد من قبل المشرف.' : 'No PlayStation stations configured yet.'}</p>
+        </SpotlightCard>
       )}
     </section>
-  )
-}
-
-function StatCard({ label, value }) {
-  return (
-    <article className="rounded-2xl border border-white/10 bg-white/5 p-4">
-      <p className="text-sm text-[var(--text-secondary)]">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-[var(--secondary-color)]">{value}</p>
-    </article>
   )
 }

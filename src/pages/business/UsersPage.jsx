@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createUser, fetchUsers } from '../../services/userService'
 import { fetchBusinesses } from '../../services/brandingService'
-import { formatArabicDateTime } from '../../utils/format'
+import { useLanguage } from '../../i18n/LanguageContext'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 const initialForm = {
   username: '',
@@ -11,6 +14,7 @@ const initialForm = {
 }
 
 export default function UsersPage() {
+  const { t, language, isRtl } = useLanguage()
   const [users, setUsers] = useState([])
   const [businesses, setBusinesses] = useState([])
   const [loading, setLoading] = useState(false)
@@ -30,7 +34,7 @@ export default function UsersPage() {
         business_id: current.business_id || String(businessRows?.[0]?.id || ''),
       }))
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر تحميل بيانات المستخدمين.')
+      setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر تحميل بيانات المستخدمين.' : 'Failed to load users.'))
     } finally {
       setLoading(false)
     }
@@ -64,43 +68,53 @@ export default function UsersPage() {
       setForm((current) => ({ ...initialForm, business_id: current.business_id }))
       await loadData()
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر إنشاء المستخدم.')
+      setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر إنشاء المستخدم.' : 'Failed to create user.'))
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <section className="space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <h2 className="text-lg font-semibold">إضافة مستخدم</h2>
-        <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+    <section className="space-y-6">
+      {/* Create User Card */}
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-500/20 text-sky-400">
+            <AppIcon name="users" size={20} />
+          </div>
+          <div>
+            <ShinyText text={t('navUsers')} className="text-lg font-bold text-white" />
+            <p className="text-xs text-slate-400">{language === 'ar' ? 'إضافة وتعيين صلاحيات الطاقم والمحكمين' : 'Add referees and operations staff'}</p>
+          </div>
+        </div>
+
+        <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
           <input
-            className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-            placeholder="اسم المستخدم"
+            className="rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+            placeholder={language === 'ar' ? 'اسم المستخدم (مثال: referee_1)' : 'Username'}
             value={form.username}
             onChange={(event) => setForm((state) => ({ ...state, username: event.target.value }))}
             required
           />
           <input
             type="password"
-            className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-            placeholder="كلمة المرور"
+            className="rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+            placeholder={language === 'ar' ? 'كلمة المرور' : 'Password'}
             value={form.password}
             onChange={(event) => setForm((state) => ({ ...state, password: event.target.value }))}
             minLength={6}
             required
           />
           <select
-            className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+            className="rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
             value={form.role}
             onChange={(event) => setForm((state) => ({ ...state, role: event.target.value }))}
           >
-            <option value="STAFF">STAFF</option>
-            <option value="ADMIN">ADMIN</option>
+            <option value="STAFF">STAFF (طاقم تشغيل / حكام)</option>
+            <option value="ADMIN">ADMIN (مدير النشاط)</option>
           </select>
           <select
-            className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+            className="rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
             value={form.business_id}
             onChange={(event) => setForm((state) => ({ ...state, business_id: event.target.value }))}
             required
@@ -114,52 +128,67 @@ export default function UsersPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60 md:col-span-2"
+            className="flex items-center justify-center gap-2 rounded-xl border border-sky-400 bg-sky-500 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50 md:col-span-2 active:scale-95"
           >
-            {submitting ? 'جار الإنشاء...' : 'إنشاء المستخدم'}
+            <AppIcon name="plus" size={15} />
+            <span>{submitting ? t('loading') : (language === 'ar' ? 'إنشاء حساب المستخدم' : 'Create User Account')}</span>
           </button>
         </form>
-      </div>
+      </SpotlightCard>
 
-      {error ? <p className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
+      {error ? (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-xs font-bold text-rose-200">
+          <AppIcon name="alert" size={16} className="text-rose-400" />
+          <span>{error}</span>
+        </div>
+      ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-        <table className="min-w-full text-right text-sm">
-          <thead className="bg-white/5 text-[var(--text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">المستخدم</th>
-              <th className="px-4 py-3">الدور</th>
-              <th className="px-4 py-3">النشاط</th>
-              <th className="px-4 py-3">تاريخ الإنشاء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+      {/* Users Table */}
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className={`min-w-full text-xs ${isRtl ? 'text-right' : 'text-left'}`}>
+            <thead className="border-b border-white/10 bg-slate-900/80 text-slate-400 uppercase font-semibold">
               <tr>
-                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={4}>
-                  جار تحميل المستخدمين...
-                </td>
+                <th className="px-4 py-3">{language === 'ar' ? 'المستخدم' : 'Username'}</th>
+                <th className="px-4 py-3">{language === 'ar' ? 'الدور' : 'Role'}</th>
+                <th className="px-4 py-3">{language === 'ar' ? 'النشاط التجاري' : 'Venue'}</th>
+                <th className="px-4 py-3">{language === 'ar' ? 'تاريخ الإنشاء' : 'Created Date'}</th>
               </tr>
-            ) : rows.length ? (
-              rows.map((item) => (
-                <tr key={item.id} className="border-t border-white/10">
-                  <td className="px-4 py-3">{item.username}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{item.role}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{item.businessName}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{formatArabicDateTime(item.created_at)}</td>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {loading ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-slate-400" colSpan={4}>
+                    {t('loading')}
+                  </td>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={4}>
-                  لا يوجد مستخدمون حاليا.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : rows.length ? (
+                rows.map((item) => (
+                  <tr key={item.id} className="transition hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 font-bold text-white flex items-center gap-2">
+                      <AppIcon name="user" size={14} className="text-sky-400" />
+                      <span>{item.username}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-300">
+                        {item.role}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">{item.businessName}</td>
+                    <td className="px-4 py-3 text-slate-500">{new Date(item.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-4 py-8 text-center text-slate-400" colSpan={4}>
+                    {language === 'ar' ? 'لا يوجد مستخدمون حالياً.' : 'No users found.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </SpotlightCard>
     </section>
   )
 }
-

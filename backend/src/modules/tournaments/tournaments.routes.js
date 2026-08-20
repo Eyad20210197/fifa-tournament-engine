@@ -142,13 +142,18 @@ const updateMatchSchema = z.object({
   manual_override: z.coerce.boolean().optional(),
 })
 
-const bulkScheduleSchema = z.object({
-  match_ids: z.array(z.coerce.number().int().positive()).min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  start_time: z.string().regex(/^\d{2}:\d{2}$/),
-  interval_minutes: z.coerce.number().int().nonnegative().max(600).default(30),
-  timezone_offset_minutes: z.coerce.number().int().min(-840).max(840).optional().default(0),
-})
+const bulkScheduleSchema = z
+  .object({
+    match_ids: z.array(z.coerce.number().int().positive()).optional().default([]),
+    first_match_starts_at: optionalDateTimeSchema.optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    start_time: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),
+    interval_minutes: z.coerce.number().int().nonnegative().max(600).default(15),
+    timezone_offset_minutes: z.coerce.number().int().min(-840).max(840).optional().default(0),
+  })
+  .refine((data) => Boolean(data.first_match_starts_at || (data.date && data.start_time)), {
+    message: 'Either first_match_starts_at or both date and start_time must be provided',
+  })
 
 function shuffleTeams(teams) {
   const list = teams.slice()
@@ -920,19 +925,27 @@ tournamentsRouter.patch(
     if (!parsed.success) throw new HttpError(400, 'Invalid payload', parsed.error.issues)
 
     const payload = parsed.data
-    const [yearText, monthText, dayText] = payload.date.split('-')
-    const [hourText, minuteText] = payload.start_time.split(':')
-    const year = Number(yearText)
-    const month = Number(monthText)
-    const day = Number(dayText)
-    const hour = Number(hourText)
-    const minute = Number(minuteText)
-    if ([year, month, day, hour, minute].some((value) => !Number.isFinite(value))) {
-      throw new HttpError(400, 'Invalid date/time')
+    let startUtcMs = null
+
+    if (payload.first_match_starts_at) {
+      const parsedTime = new Date(payload.first_match_starts_at).getTime()
+      if (!Number.isNaN(parsedTime)) startUtcMs = parsedTime
+    } else if (payload.date && payload.start_time) {
+      const [yearText, monthText, dayText] = payload.date.split('-')
+      const [hourText, minuteText] = payload.start_time.split(':')
+      const year = Number(yearText)
+      const month = Number(monthText)
+      const day = Number(dayText)
+      const hour = Number(hourText)
+      const minute = Number(minuteText)
+      if ([year, month, day, hour, minute].every((value) => Number.isFinite(value))) {
+        startUtcMs = Date.UTC(year, month - 1, day, hour, minute) + payload.timezone_offset_minutes * 60000
+      }
     }
-    // Convert client-local date/time to UTC using the client-provided offset.
-    const startUtcMs = Date.UTC(year, month - 1, day, hour, minute) + payload.timezone_offset_minutes * 60000
-    if (Number.isNaN(startUtcMs)) throw new HttpError(400, 'Invalid date/time')
+
+    if (!startUtcMs || Number.isNaN(startUtcMs)) {
+      throw new HttpError(400, 'Invalid start date/time')
+    }
 
     const updated = await withTransaction(async (client) => {
       const check = await client.query(
@@ -944,8 +957,22 @@ tournamentsRouter.patch(
       )
       if (!check.rows[0]) throw new HttpError(404, 'Tournament not found')
 
-      const uniqueIds = [...new Set(payload.match_ids)]
-      for (let i = 0; i < uniqueIds.length; i += 1) {
+      let targetIds = Array.isArray(payload.match_ids) && payload.match_ids.length > 0
+        ? [...new Set(payload.match_ids)]
+        : []
+
+      if (targetIds.length === 0) {
+        const allMatchesResult = await client.query(
+          `SELECT id
+           FROM tournament_matches
+           WHERE tournament_id = $1 AND business_id = $2
+           ORDER BY COALESCE(stage_number, 1) ASC, COALESCE(round_number, 1) ASC, id ASC`,
+          [tournamentId, req.user.business_id],
+        )
+        targetIds = allMatchesResult.rows.map((row) => Number(row.id))
+      }
+
+      for (let i = 0; i < targetIds.length; i += 1) {
         const slot = new Date(startUtcMs + i * payload.interval_minutes * 60000)
         const startsAt = slot.toISOString().replace(/\.\d{3}Z$/, 'Z')
         const result = await client.query(
@@ -956,9 +983,9 @@ tournamentsRouter.patch(
              AND tournament_id = $3
              AND business_id = $4
            RETURNING id`,
-          [startsAt, uniqueIds[i], tournamentId, req.user.business_id],
+          [startsAt, targetIds[i], tournamentId, req.user.business_id],
         )
-        if (!result.rows[0]) throw new HttpError(404, `Match not found: ${uniqueIds[i]}`)
+        if (!result.rows[0]) throw new HttpError(404, `Match not found: ${targetIds[i]}`)
       }
 
       const refreshed = await client.query(
@@ -969,7 +996,7 @@ tournamentsRouter.patch(
            AND tournament_id = $2
            AND business_id = $3
          ORDER BY starts_at ASC, id ASC`,
-        [uniqueIds, tournamentId, req.user.business_id],
+        [targetIds, tournamentId, req.user.business_id],
       )
       return refreshed.rows
     })

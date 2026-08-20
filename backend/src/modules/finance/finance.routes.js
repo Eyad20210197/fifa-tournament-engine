@@ -73,7 +73,7 @@ financeRouter.get(
       [tournamentId, req.user.business_id],
     )
 
-    if (!result.rows[0]) throw new HttpError(404, 'Financial setup not found')
+    if (!result.rows[0]) return res.json({ success: true, data: null })
     return res.json({ success: true, data: result.rows[0] })
   }),
 )
@@ -157,7 +157,6 @@ financeRouter.get(
        LIMIT 1`,
       [tournamentId, req.user.business_id],
     )
-    if (!details.rows[0]) throw new HttpError(404, 'Financial setup not found')
 
     const expenseRows = await query(
       `SELECT COALESCE(SUM(amount), 0)::float AS total_costs
@@ -171,6 +170,29 @@ financeRouter.get(
        WHERE tournament_id = $1 AND business_id = $2`,
       [tournamentId, req.user.business_id],
     )
+
+    if (!details.rows[0]) {
+      const manualCosts = Number(expenseRows.rows[0]?.total_costs || 0)
+      const totalMatches = Number(matchCountRows.rows[0]?.total_matches || 0)
+      return res.json({
+        success: true,
+        data: {
+          entry_fee: 0,
+          sponsor_amount: 0,
+          expected_teams: 0,
+          hour_rate: 0,
+          match_duration_minutes: 10,
+          total_revenue: 0,
+          total_costs: manualCosts,
+          manual_costs: manualCosts,
+          operating_costs: 0,
+          net_profit: -manualCosts,
+          profit_margin: 0,
+          break_even_teams: 0,
+          total_matches: totalMatches,
+        },
+      })
+    }
 
     const financial = details.rows[0]
     const manualCosts = Number(expenseRows.rows[0]?.total_costs || 0)

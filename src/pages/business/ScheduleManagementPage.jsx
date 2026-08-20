@@ -450,7 +450,7 @@ export default function ScheduleManagementPage() {
       const updated = await bulkScheduleMatches(Number(selectedTournamentId), {
         first_match_starts_at: toUtcIsoFromLocalDateTime(bulkConfig.first_match_starts_at),
         interval_minutes: Number(bulkConfig.interval_minutes) || 15,
-        match_ids: selectedMatches.length ? selectedMatches : undefined,
+        match_ids: selectedMatches.length ? selectedMatches : [],
       })
       setDetails(updated)
       const nextTimes = {}
@@ -476,7 +476,17 @@ export default function ScheduleManagementPage() {
       setProgress(p)
       showSuccess(language === 'ar' ? 'تم توليد مواجهات الدور التالي بنجاح!' : 'Next round generated!')
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to generate next round')
+      const status = e?.response?.status
+      const msg = e?.response?.data?.message || e?.message || ''
+      if (status === 409 || msg.includes('not complete')) {
+        setError(
+          language === 'ar'
+            ? 'لا يمكن توليد الدور التالي قبل اكتمال نتائج جميع مباريات الدور الحالي أولاً.'
+            : 'Cannot generate next round until all matches in the current round are completed.'
+        )
+      } else {
+        setError(msg || 'Failed to generate next round')
+      }
     } finally {
       setSaving(false)
     }

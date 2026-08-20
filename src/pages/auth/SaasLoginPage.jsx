@@ -139,9 +139,40 @@ export default function SaasLoginPage() {
             {loading ? t('loading') : (language === 'ar' ? 'تسجيل الدخول إلى المنصة' : 'Sign In to Arena')}
           </button>
 
-          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center text-[11px] text-slate-400">
-            <span className="font-semibold text-slate-300">{language === 'ar' ? 'حساب تجريبي افتراضي:' : 'Default Demo Login:'}</span>
-            <span className="mx-1 text-sky-400 font-mono">admin</span> / <span className="text-amber-400 font-mono">Admin@123</span>
+          {/* 1-Click Quick Demo Login */}
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            <p className="text-[11px] font-bold text-slate-400 text-center uppercase tracking-wider">
+              {language === 'ar' ? '⚡ الدخول السريع (1-Click Demo Login)' : '⚡ Quick 1-Click Demo Roles'}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setUsername('admin')
+                  setPassword('Admin@123')
+                  const res = await login({ username: 'admin', password: 'Admin@123' })
+                  navigate(res.redirectTo, { replace: true })
+                }}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20"
+              >
+                <AppIcon name="trophy" size={14} />
+                <span>{language === 'ar' ? 'مدير الصالة' : 'Arena Admin'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setUsername('superadmin')
+                  setPassword('SuperAdmin@123')
+                  const res = await login({ username: 'superadmin', password: 'SuperAdmin@123' })
+                  navigate(res.redirectTo, { replace: true })
+                }}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/10 p-2 text-xs font-bold text-sky-300 hover:bg-sky-500/20"
+              >
+                <AppIcon name="building" size={14} />
+                <span>{language === 'ar' ? 'المشرف العام' : 'Super Admin'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </SpotlightCard>

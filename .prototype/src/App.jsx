@@ -9,6 +9,8 @@ import BrandingPage from './pages/BrandingPage'
 import FinancePage from './pages/FinancePage'
 import SuperAdminPage from './pages/SuperAdminPage'
 
+import LoginPage from './pages/LoginPage'
+
 export default function App() {
   return (
     <Routes>
@@ -21,6 +23,10 @@ export default function App() {
         <Route path="finance" element={<FinancePage />} />
         <Route path="super-admin" element={<SuperAdminPage />} />
       </Route>
+      {/* Mock Authentication Routes */}
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/saas/login" element={<LoginPage />} />
+      <Route path="/auth/login" element={<LoginPage />} />
       {/* Fullscreen Spectator Display Route */}
       <Route path="/display" element={<DisplayPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />

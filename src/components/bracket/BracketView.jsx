@@ -1,23 +1,25 @@
-﻿import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo } from 'react'
 import { useTournamentStore } from '../../store/tournamentStore'
-import { formatArabicNumber } from '../../utils/format'
+import { useLanguage } from '../../i18n/LanguageContext'
 import { useSwipePages } from '../../hooks/useSwipePages'
+import AppIcon from '../common/AppIcon'
 
 const MATCHES_PER_PAGE = 4
 
 export function BracketView() {
   const matches = useTournamentStore((s) => s.matches)
   const teams = useTournamentStore((s) => s.teams)
+  const { language } = useLanguage()
 
   const stagePages = useMemo(() => {
     const nameById = new Map(teams.map((team) => [team.id, team.teamName]))
     const knockout = matches.filter((item) => item.mode === 'knockout').slice()
-    knockout.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+    knockout.sort((a, b) => new Date(a.starts_at || a.startsAt || 0) - new Date(b.starts_at || b.startsAt || 0))
 
     const grouped = new Map()
     for (const match of knockout) {
-      const stageName = String(match.stageName || `الجولة ${formatArabicNumber(match.round ?? 1)}`)
+      const stageName = String(match.stageName || match.stage_name || (language === 'ar' ? `الجولة ${match.round ?? 1}` : `Round ${match.round ?? 1}`))
       if (!grouped.has(stageName)) grouped.set(stageName, [])
       grouped.get(stageName).push({
         ...match,
@@ -39,23 +41,34 @@ export function BracketView() {
       }
     }
     return pages
-  }, [matches, teams])
+  }, [matches, teams, language])
 
   const { page, pageIndex, pages, swipeHandlers } = useSwipePages(stagePages, 1, 12000)
   const active = page[0] || null
 
   if (!active) {
     return (
-      <section className="grid h-full place-items-center overflow-hidden">
-        <p className="font-headline text-[clamp(1.2rem,2vw,2.2rem)] text-white/65">لا توجد شجرة إقصائية بعد</p>
+      <section className="grid h-full place-items-center overflow-hidden p-6 text-center">
+        <div className="space-y-2">
+          <AppIcon name="layers" size={48} className="mx-auto text-slate-600" />
+          <p className="font-headline text-[clamp(1.2rem,2vw,2.2rem)] text-slate-400 font-bold">
+            {language === 'ar' ? 'لا توجد شجرة إقصائية بعد' : 'No Knockout Bracket Available Yet'}
+          </p>
+          <p className="text-xs text-slate-500">
+            {language === 'ar' ? 'ستظهر شجرة البطولة عند اختيار نمط خروج المغلوب' : 'Knockout tree appears when tournament format is Single Elimination'}
+          </p>
+        </div>
       </section>
     )
   }
 
   return (
-    <section className="flex h-full flex-col gap-3 overflow-hidden px-2 py-2" {...swipeHandlers}>
-      <h2 className="shrink-0 text-center font-headline text-[clamp(1.6rem,3.4vw,4rem)] font-semibold">شجرة البطولة</h2>
-      <p className="shrink-0 text-center font-headline text-[clamp(1rem,1.8vw,2.2rem)] text-[var(--secondary-color)]">
+    <section className="flex h-full flex-col gap-3 overflow-hidden px-3 py-2" {...swipeHandlers}>
+      <h2 className="shrink-0 text-center font-headline text-[clamp(1.6rem,3.4vw,4rem)] font-black text-white flex items-center justify-center gap-3">
+        <AppIcon name="trophy" size={32} className="text-amber-400" />
+        <span>{language === 'ar' ? 'شجرة الأدوار الإقصائية' : 'KNOCKOUT PLAYOFF BRACKET'}</span>
+      </h2>
+      <p className="shrink-0 text-center font-bold text-xs uppercase tracking-widest text-sky-400">
         {active.stageName}
         {active.totalParts > 1 ? ` • ${active.partIndex}/${active.totalParts}` : ''}
       </p>
@@ -63,81 +76,68 @@ export function BracketView() {
       <AnimatePresence mode="wait">
         <motion.div
           key={pageIndex}
-          initial={{ x: 120, opacity: 0 }}
+          initial={{ x: 100, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -120, opacity: 0 }}
+          exit={{ x: -100, opacity: 0 }}
           transition={{ duration: 0.32, ease: 'easeOut' }}
-          className="grid min-h-0 flex-1 auto-rows-fr gap-3"
+          className="grid min-h-0 flex-1 auto-rows-fr gap-3 max-w-5xl mx-auto w-full"
         >
           {active.matches.map((match) => {
-            const isFinished = match.winner_team_id != null
-            const homeWon = isFinished && match.winner_team_id === match.homeTeamId
-            const awayWon = isFinished && match.winner_team_id === match.awayTeamId
-
-            const homeClasses = [
-              'truncate',
-              'text-right',
-              'font-headline',
-              'text-[clamp(1.2rem,2.4vw,2.8rem)]',
-              'text-cyan-50',
-              homeWon ? 'text-yellow-400' : '',
-              awayWon ? 'line-through' : '',
-            ]
-              .join(' ')
-              .trim()
-
-            const awayClasses = [
-              'truncate',
-              'text-left',
-              'font-headline',
-              'text-[clamp(1.2rem,2.4vw,2.8rem)]',
-              'text-cyan-50',
-              awayWon ? 'text-yellow-400' : '',
-              homeWon ? 'line-through' : '',
-            ]
-              .join(' ')
-              .trim()
+            const isFinished = match.winner_team_id != null || match.winnerTeamId != null
+            const winnerId = match.winner_team_id || match.winnerTeamId
+            const homeWon = isFinished && winnerId === match.homeTeamId
+            const awayWon = isFinished && winnerId === match.awayTeamId
 
             return (
               <article
                 key={match.id}
-                className="grid grid-cols-[1.7fr_1fr_1.7fr] items-center gap-4 rounded-xl border border-cyan-300/25 bg-[linear-gradient(120deg,rgba(7,19,42,0.75),rgba(0,0,0,0.55))] px-4 py-4 shadow-[0_0_28px_rgba(71,216,255,0.14)]"
+                className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 rounded-2xl border border-white/10 bg-slate-950/80 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
               >
-                <p className={homeClasses}>{match.homeName}</p>
-                <div className="text-center">
-                  <p className="font-latin text-[clamp(1.5rem,3vw,3.6rem)] text-[var(--secondary-color)]">
-                    {isUpcomingMatch(match.status)
-                      ? 'VS'
-                      : `${formatArabicNumber(match.homeScore ?? 0)} : ${formatArabicNumber(match.awayScore ?? 0)}`}
-                  </p>
-                  <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">
-                    {match.legNumber === 2 ? 'إياب' : 'ذهاب'}
-                  </p>
-                  <p className="font-headline text-[clamp(0.8rem,1.05vw,1.2rem)] text-cyan-100/80">
-                    {statusLabel(match.status)}
-                  </p>
+                {/* Home Team */}
+                <div className="flex items-center justify-end gap-2 min-w-0">
+                  <span
+                    className={`truncate text-right font-headline text-[clamp(1.2rem,2.4vw,2.6rem)] font-bold ${
+                      homeWon ? 'text-amber-400' : awayWon ? 'text-slate-500 line-through opacity-60' : 'text-white'
+                    }`}
+                  >
+                    {match.homeName}
+                  </span>
+                  {homeWon && <AppIcon name="check" size={20} className="text-amber-400 shrink-0" />}
                 </div>
-                <p className={awayClasses}>{match.awayName}</p>
+
+                {/* Score / VS Pill */}
+                <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-black/60 px-4 py-2 font-mono">
+                  <span className={`text-xl font-black ${homeWon ? 'text-amber-400' : 'text-cyan-300'}`}>
+                    {match.homeScore ?? 0}
+                  </span>
+                  <span className="text-slate-500 font-bold">:</span>
+                  <span className={`text-xl font-black ${awayWon ? 'text-amber-400' : 'text-amber-300'}`}>
+                    {match.awayScore ?? 0}
+                  </span>
+                </div>
+
+                {/* Away Team */}
+                <div className="flex items-center justify-start gap-2 min-w-0">
+                  {awayWon && <AppIcon name="check" size={20} className="text-amber-400 shrink-0" />}
+                  <span
+                    className={`truncate text-left font-headline text-[clamp(1.2rem,2.4vw,2.6rem)] font-bold ${
+                      awayWon ? 'text-amber-400' : homeWon ? 'text-slate-500 line-through opacity-60' : 'text-white'
+                    }`}
+                  >
+                    {match.awayName}
+                  </span>
+                </div>
               </article>
             )
           })}
         </motion.div>
       </AnimatePresence>
 
-      {pages.length > 1 ? <p className="shrink-0 text-center font-latin text-xs text-white/60">{pageIndex + 1} / {pages.length}</p> : null}
+      {pages.length > 1 ? (
+        <p className="shrink-0 text-center font-mono text-xs font-bold text-slate-400">
+          {pageIndex + 1} / {pages.length}
+        </p>
+      ) : null}
     </section>
   )
-}
-
-function statusLabel(status) {
-  const value = String(status || '').toLowerCase()
-  if (value === 'live') return 'Live'
-  if (value === 'finished' || value === 'ended') return 'Ended'
-  if (value === 'et' || value === 'extra_time') return 'ET'
-  if (value === 'penalties' || value === 'pens') return 'Penalties'
-  return 'Upcoming'
-}
-
-function isUpcomingMatch(status) {
-  return String(status || '').toLowerCase() === 'pending'
 }

@@ -9,6 +9,10 @@ import {
   uploadBrandingLogo,
   uploadOpeningVideo,
 } from '../../services/mediaService'
+import { useLanguage } from '../../i18n/LanguageContext'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 const MAX_ANIMATED_BYTES = 260 * 1024 * 1024
 const MAX_OPENING_BYTES = 260 * 1024 * 1024
@@ -17,13 +21,14 @@ const ANIMATED_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime
 
 const emptyForm = {
   brand_name: '',
-  primary_color: '',
-  secondary_color: '',
+  primary_color: '#38bdf8',
+  secondary_color: '#f59e0b',
   logo_url: '',
   animated_logo_url: '',
 }
 
 export default function BrandingPage() {
+  const { t, language } = useLanguage()
   const [form, setForm] = useState(emptyForm)
   const [openingVideo, setOpeningVideo] = useState(null)
   const [animatedVideo, setAnimatedVideo] = useState(null)
@@ -48,23 +53,32 @@ export default function BrandingPage() {
   const animatedRef = useRef(null)
   const openingRef = useRef(null)
 
+  function applyColorsToDom(primary, secondary) {
+    const root = document.documentElement
+    if (primary) root.style.setProperty('--primary-color', primary)
+    if (secondary) root.style.setProperty('--secondary-color', secondary)
+  }
+
   useEffect(() => {
     setLoading(true)
     setMediaLoading(true)
     Promise.all([fetchBusinessBranding(), fetchOpeningVideo(), fetchBrandingAnimatedLogo()])
       .then(([brandingData, openingData, animatedData]) => {
+        const primary = brandingData?.primary_color || '#38bdf8'
+        const secondary = brandingData?.secondary_color || '#f59e0b'
         setForm({
           brand_name: brandingData?.brand_name || '',
-          primary_color: brandingData?.primary_color || '',
-          secondary_color: brandingData?.secondary_color || '',
+          primary_color: primary,
+          secondary_color: secondary,
           logo_url: brandingData?.logo_url || '',
           animated_logo_url: brandingData?.animated_logo_url || '',
         })
+        applyColorsToDom(primary, secondary)
         setOpeningVideo(openingData?.path ? openingData : null)
         setAnimatedVideo(animatedData?.path ? animatedData : null)
       })
       .catch((requestError) => {
-        setError(requestError?.response?.data?.message || 'Failed to load branding data')
+        setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر تحميل بيانات الهوية' : 'Failed to load branding data'))
       })
       .finally(() => {
         setLoading(false)
@@ -72,20 +86,12 @@ export default function BrandingPage() {
       })
   }, [])
 
-  function validateOpeningVideo(file) {
-    if (!file) return 'Select an opening video file.'
-    const mime = String(file.type || '').toLowerCase()
-    if (!OPENING_MIME_TYPES.has(mime)) return 'Opening Screen Intro Video must be MP4.'
-    if (file.size > MAX_OPENING_BYTES) return 'Opening video exceeds 260MB.'
-    return null
-  }
-
-  function validateAnimatedVideo(file) {
-    if (!file) return 'Select an animated logo file.'
-    const mime = String(file.type || '').toLowerCase()
-    if (!ANIMATED_MIME_TYPES.has(mime)) return 'Animated logo must be MOV, MP4, or WEBM.'
-    if (file.size > MAX_ANIMATED_BYTES) return 'Animated logo exceeds 260MB.'
-    return null
+  function handleColorChange(key, value) {
+    setForm((s) => {
+      const next = { ...s, [key]: value }
+      applyColorsToDom(next.primary_color, next.secondary_color)
+      return next
+    })
   }
 
   async function onUploadLogo(file) {
@@ -98,100 +104,48 @@ export default function BrandingPage() {
       const result = await uploadBrandingLogo(file, {
         onProgress: (percent) => setLogoProgress(percent),
       })
-      const url = String(result?.url || '').trim()
-      if (!url) throw new Error('Missing uploaded logo URL')
-      setForm((state) => ({ ...state, logo_url: url }))
-      setMessage('Brand logo uploaded successfully.')
+      const nextUrl = result?.url || result?.path || ''
+      setForm((s) => ({ ...s, logo_url: nextUrl }))
+      setMessage(language === 'ar' ? 'تم رفع الشعار بنجاح!' : 'Logo uploaded successfully!')
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload logo')
+      setError(requestError?.response?.data?.message || 'Failed to upload logo')
     } finally {
       setUploadingLogo(false)
-      setLogoProgress(0)
-      if (logoRef.current) logoRef.current.value = ''
-    }
-  }
-
-  async function onUploadAnimated(file) {
-    const validationError = validateAnimatedVideo(file)
-    if (validationError) {
-      setError(validationError)
-      return
-    }
-
-    setUploadingAnimated(true)
-    setAnimatedProgress(0)
-    setError('')
-    setMessage('')
-    try {
-      const result = await uploadBrandingAnimatedLogo(file, {
-        onProgress: (percent) => setAnimatedProgress(percent),
-      })
-      setAnimatedVideo(result?.path ? result : null)
-      setForm((state) => ({ ...state, animated_logo_url: String(result?.path || '').trim() }))
-      setMessage('Animated Logo updated. Remember to click "Save Branding" to apply changes.')
-    } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload animated logo')
-    } finally {
-      setUploadingAnimated(false)
-      setAnimatedProgress(0)
-      if (animatedRef.current) animatedRef.current.value = ''
-    }
-  }
-
-  async function onDeleteAnimated() {
-    if (!animatedVideo?.path) return
-    setDeletingAnimated(true)
-    setError('')
-    setMessage('')
-    try {
-      await deleteBrandingAnimatedLogo()
-      setAnimatedVideo(null)
-      setForm((state) => ({ ...state, animated_logo_url: '' }))
-      setMessage('Animated Logo (Desktop Top Bar Only) deleted successfully.')
-    } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'Failed to delete animated logo')
-    } finally {
-      setDeletingAnimated(false)
     }
   }
 
   async function onUploadOpening(file) {
-    const validationError = validateOpeningVideo(file)
-    if (validationError) {
-      setError(validationError)
+    if (!file) return
+    if (!OPENING_MIME_TYPES.has(String(file.type || '').toLowerCase())) {
+      setError(language === 'ar' ? 'فيديو الافتتاح يجب أن يكون بصيغة MP4' : 'Intro video must be MP4')
       return
     }
-
     setUploadingOpening(true)
     setOpeningProgress(0)
     setError('')
     setMessage('')
     try {
-      const result = await uploadOpeningVideo(file, {
+      const uploaded = await uploadOpeningVideo(file, {
         onProgress: (percent) => setOpeningProgress(percent),
       })
-      setOpeningVideo(result?.path ? result : null)
-      setMessage('Opening Screen Intro Video updated successfully.')
-    } catch (requestError) {
-      setError(requestError?.response?.data?.message || requestError?.message || 'Failed to upload opening video')
+      setOpeningVideo(uploaded)
+      setMessage(language === 'ar' ? 'تم رفع فيديو الافتتاح بنجاح!' : 'Intro video uploaded successfully!')
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to upload opening video')
     } finally {
       setUploadingOpening(false)
-      setOpeningProgress(0)
-      if (openingRef.current) openingRef.current.value = ''
     }
   }
 
   async function onDeleteOpening() {
-    if (!openingVideo?.path) return
     setDeletingOpening(true)
     setError('')
-    setMessage('')
     try {
       await deleteOpeningVideo()
       setOpeningVideo(null)
-      setMessage('Opening Screen Intro Video deleted successfully.')
-    } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'Failed to delete opening video')
+      setMessage(language === 'ar' ? 'تم حذف فيديو الافتتاح' : 'Opening video removed')
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to delete opening video')
     } finally {
       setDeletingOpening(false)
     }
@@ -212,14 +166,8 @@ export default function BrandingPage() {
         animated_logo_url: form.animated_logo_url.trim() || null,
       }
       const updated = await updateMyBusinessBranding(payload)
-      setForm({
-        brand_name: updated?.brand_name || '',
-        primary_color: updated?.primary_color || '',
-        secondary_color: updated?.secondary_color || '',
-        logo_url: updated?.logo_url || '',
-        animated_logo_url: updated?.animated_logo_url || '',
-      })
-      setMessage('Branding saved successfully.')
+      applyColorsToDom(updated?.primary_color, updated?.secondary_color)
+      setMessage(language === 'ar' ? 'تم حفظ الهوية وتطبيق الألوان بنجاح!' : 'Branding saved and applied across entire system!')
     } catch (requestError) {
       setError(requestError?.response?.data?.message || 'Failed to save branding')
     } finally {
@@ -228,197 +176,202 @@ export default function BrandingPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-xl font-semibold">Brand Identity</h2>
-      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-      {message ? <p className="text-sm text-emerald-300">{message}</p> : null}
-
-      <form className="grid gap-3 sm:grid-cols-2" onSubmit={onSave}>
-        <Field
-          label="Brand Name"
-          value={form.brand_name}
-          onChange={(event) => setForm((state) => ({ ...state, brand_name: event.target.value }))}
-          placeholder="Brand name"
-        />
-        <Field
-          label="Primary Color"
-          value={form.primary_color}
-          onChange={(event) => setForm((state) => ({ ...state, primary_color: event.target.value }))}
-          placeholder="#c9a227"
-        />
-        <Field
-          label="Secondary Color"
-          value={form.secondary_color}
-          onChange={(event) => setForm((state) => ({ ...state, secondary_color: event.target.value }))}
-          placeholder="#f6d365"
-        />
-
-        <label className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
-          <p className="text-xs text-[var(--text-secondary)]">Brand Logo</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={(event) => onUploadLogo(event.target.files?.[0])} />
-            <button
-              type="button"
-              onClick={() => logoRef.current?.click()}
-              className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-              disabled={uploadingLogo || loading}
-            >
-              {uploadingLogo ? `Uploading... ${logoProgress}%` : form.logo_url ? 'Replace Logo' : 'Upload Logo'}
-            </button>
-            {form.logo_url ? <span className="text-xs text-[var(--text-secondary)] truncate">{form.logo_url}</span> : null}
+    <section className="space-y-6">
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-400/40 bg-sky-500/20 text-sky-400">
+            <AppIcon name="palette" size={22} />
           </div>
-          {uploadingLogo ? <p className="mt-2 text-xs text-[var(--text-secondary)]">Upload progress: {logoProgress}%</p> : null}
-        </label>
+          <div>
+            <ShinyText text={t('navBranding')} className="text-xl font-black text-white" />
+            <p className="text-xs text-slate-400">
+              {language === 'ar' ? 'تخصيص اسم الصالة، ألوان الهوية، الشعار، وفيديو الافتتاح' : 'Custom arena name, brand colors, logo, and cinema intro video'}
+            </p>
+          </div>
+        </div>
+      </SpotlightCard>
 
-        <MediaCard
-          title="Animated Logo (Desktop Top Bar Only)"
-          subtitle="Formats: MOV / MP4 / WEBM. Max 260MB."
-          loading={mediaLoading}
-          saving={uploadingAnimated || deletingAnimated}
-          hasMedia={Boolean(animatedVideo?.path)}
-          onUploadClick={() => animatedRef.current?.click()}
-          onDelete={onDeleteAnimated}
-          uploadLabel={uploadingAnimated ? `Uploading... ${animatedProgress}%` : animatedVideo?.path ? 'Replace' : 'Upload'}
-          deleteLabel={deletingAnimated ? 'Deleting...' : 'Delete'}
-          progress={animatedProgress}
-          showProgress={uploadingAnimated}
-          preview={
-            animatedVideo?.path ? (
-              <video
-                src={animatedVideo.path}
-                autoPlay
-                loop
-                controls
-                muted
-                playsInline
-                preload="metadata"
-                className="w-full rounded-xl bg-black"
+      {error ? (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-xs font-bold text-rose-200">
+          <AppIcon name="alert" size={16} className="text-rose-400 shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {message ? (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-3.5 text-xs font-bold text-emerald-200">
+          <AppIcon name="check" size={16} className="text-emerald-400 shrink-0" />
+          <span>{message}</span>
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Color Palette & Brand Name */}
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-4">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+            <AppIcon name="palette" size={16} />
+            <span>{language === 'ar' ? 'ألوان وسمات الصالة' : 'Arena Colors & Theme'}</span>
+          </h3>
+
+          <form onSubmit={onSave} className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                {language === 'ar' ? 'اسم الصالة أو العلامة' : 'Arena Brand Name'}
+              </label>
+              <input
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={form.brand_name}
+                onChange={(e) => setForm((s) => ({ ...s, brand_name: e.target.value }))}
+                placeholder="FIFA Gaming Lounge"
               />
-            ) : (
-              <p className="text-sm text-[var(--text-secondary)]">No animated logo uploaded.</p>
-            )
-          }
-        >
-          <input
-            ref={animatedRef}
-            type="file"
-            accept="video/quicktime,video/mp4,video/webm,.mov,.mp4,.webm"
-            className="hidden"
-            onChange={(event) => onUploadAnimated(event.target.files?.[0])}
-          />
-        </MediaCard>
+            </div>
 
-        <MediaCard
-          title="Opening Screen Intro Video"
-          subtitle="Format: MP4 only. Max 260MB."
-          loading={mediaLoading}
-          saving={uploadingOpening || deletingOpening}
-          hasMedia={Boolean(openingVideo?.path)}
-          onUploadClick={() => openingRef.current?.click()}
-          onDelete={onDeleteOpening}
-          uploadLabel={uploadingOpening ? `Uploading... ${openingProgress}%` : openingVideo?.path ? 'Replace' : 'Upload'}
-          deleteLabel={deletingOpening ? 'Deleting...' : 'Delete'}
-          progress={openingProgress}
-          showProgress={uploadingOpening}
-          preview={
-            openingVideo?.path ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  {language === 'ar' ? 'اللون الأساسي (Primary)' : 'Primary Accent'}
+                </label>
+                <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-slate-900/80 px-2 py-1.5">
+                  <input
+                    type="color"
+                    className="h-8 w-8 cursor-pointer rounded-lg border-0 bg-transparent"
+                    value={form.primary_color || '#38bdf8'}
+                    onChange={(e) => handleColorChange('primary_color', e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className="w-full bg-transparent text-xs font-mono text-white focus:outline-none"
+                    value={form.primary_color}
+                    onChange={(e) => handleColorChange('primary_color', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                  {language === 'ar' ? 'اللون الثانوي (Gold/Glow)' : 'Secondary Accent'}
+                </label>
+                <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-slate-900/80 px-2 py-1.5">
+                  <input
+                    type="color"
+                    className="h-8 w-8 cursor-pointer rounded-lg border-0 bg-transparent"
+                    value={form.secondary_color || '#f59e0b'}
+                    onChange={(e) => handleColorChange('secondary_color', e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className="w-full bg-transparent text-xs font-mono text-white focus:outline-none"
+                    value={form.secondary_color}
+                    onChange={(e) => handleColorChange('secondary_color', e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Live Theme Preview Box */}
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                {language === 'ar' ? 'معاينة حية للمظهر' : 'Live Theme Preview'}
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  style={{ backgroundColor: form.primary_color || '#38bdf8' }}
+                  className="rounded-lg px-4 py-1.5 text-xs font-black text-black shadow-lg"
+                >
+                  Primary Action
+                </button>
+                <button
+                  type="button"
+                  style={{ borderColor: form.secondary_color || '#f59e0b', color: form.secondary_color || '#f59e0b' }}
+                  className="rounded-lg border px-4 py-1.5 text-xs font-bold"
+                >
+                  Secondary Glow
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-xl border border-sky-400 bg-sky-500 px-6 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50"
+            >
+              <AppIcon name="save" size={14} />
+              <span>{saving ? t('loading') : (language === 'ar' ? 'حفظ وتطبيق المظهر' : 'Save & Apply Theme')}</span>
+            </button>
+          </form>
+        </SpotlightCard>
+
+        {/* Media & Videos */}
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-4">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+            <AppIcon name="sparkles" size={16} />
+            <span>{language === 'ar' ? 'الشعار وفيديو الافتتاح' : 'Logo & Intro Cinema Media'}</span>
+          </h3>
+
+          {/* Logo Upload */}
+          <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2.5">
+            <label className="text-xs font-bold text-slate-300 block">
+              {language === 'ar' ? 'شعار الصالة (PNG / SVG / JPG)' : 'Brand Logo (PNG / SVG)'}
+            </label>
+            <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={(e) => onUploadLogo(e.target.files?.[0])} />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => logoRef.current?.click()}
+                disabled={uploadingLogo}
+                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs font-bold text-white transition hover:bg-white/10"
+              >
+                <AppIcon name="download" size={14} />
+                <span>{uploadingLogo ? `${t('loading')} ${logoProgress}%` : (language === 'ar' ? 'رفع الشعار' : 'Upload Logo')}</span>
+              </button>
+              {form.logo_url && (
+                <div className="h-9 w-9 rounded-lg border border-white/15 bg-black/40 overflow-hidden">
+                  <img src={form.logo_url} alt="Logo" className="h-full w-full object-contain" />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Intro Video Upload */}
+          <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-2.5">
+            <label className="text-xs font-bold text-slate-300 block">
+              {language === 'ar' ? 'فيديو افتتاح شاشات العرض (16:9 MP4)' : 'Opening Cinema Video (16:9 MP4)'}
+            </label>
+            <input ref={openingRef} type="file" accept="video/mp4" className="hidden" onChange={(e) => onUploadOpening(e.target.files?.[0])} />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openingRef.current?.click()}
+                disabled={uploadingOpening}
+                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs font-bold text-white transition hover:bg-white/10"
+              >
+                <AppIcon name="download" size={14} />
+                <span>{uploadingOpening ? `${t('loading')} ${openingProgress}%` : (language === 'ar' ? 'رفع فيديو MP4' : 'Upload Video')}</span>
+              </button>
+              {openingVideo?.path && (
+                <button
+                  type="button"
+                  onClick={onDeleteOpening}
+                  disabled={deletingOpening}
+                  className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/20"
+                >
+                  <AppIcon name="trash" size={13} />
+                </button>
+              )}
+            </div>
+
+            {openingVideo?.path ? (
               <video
                 src={openingVideo.path}
-                autoPlay
-                loop
                 controls
                 muted
-                playsInline
-                preload="metadata"
-                className="w-full rounded-xl bg-black"
+                className="w-full rounded-xl border border-white/10 bg-black mt-2 max-h-[160px] object-cover"
               />
-            ) : (
-              <p className="text-sm text-[var(--text-secondary)]">No opening intro video uploaded.</p>
-            )
-          }
-        >
-          <input
-            ref={openingRef}
-            type="file"
-            accept="video/mp4,.mp4"
-            className="hidden"
-            onChange={(event) => onUploadOpening(event.target.files?.[0])}
-          />
-        </MediaCard>
-
-        <div className="sm:col-span-2">
-          <button
-            type="submit"
-            disabled={saving || loading}
-            className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : 'Save Branding'}
-          </button>
-        </div>
-      </form>
+            ) : null}
+          </div>
+        </SpotlightCard>
+      </div>
     </section>
-  )
-}
-
-function Field({ label, value, onChange, placeholder, className = '' }) {
-  return (
-    <label className={`rounded-2xl border border-white/10 bg-white/5 p-4 ${className}`.trim()}>
-      <p className="text-xs text-[var(--text-secondary)]">{label}</p>
-      <input
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[var(--primary-color)]/60"
-      />
-    </label>
-  )
-}
-
-function MediaCard({
-  title,
-  subtitle,
-  loading,
-  saving,
-  hasMedia,
-  onUploadClick,
-  onDelete,
-  uploadLabel,
-  deleteLabel,
-  progress = 0,
-  showProgress = false,
-  preview,
-  children,
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="mt-1 text-xs text-[var(--text-secondary)]">{subtitle}</p>
-
-      {children}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onUploadClick}
-          disabled={saving || loading}
-          className="min-h-11 rounded-xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-        >
-          {uploadLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={saving || loading || !hasMedia}
-          className="min-h-11 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-100 disabled:opacity-60"
-        >
-          {deleteLabel}
-        </button>
-      </div>
-      {showProgress ? <p className="mt-2 text-xs text-[var(--text-secondary)]">Upload progress: {progress}%</p> : null}
-
-      <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-        {loading ? <p className="text-sm text-[var(--text-secondary)]">Loading media metadata...</p> : preview}
-      </div>
-    </div>
   )
 }

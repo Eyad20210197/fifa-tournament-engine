@@ -154,11 +154,30 @@ function statusForRemaining(remainingMs, statusHint) {
   return 'paused'
 }
 
+let liveBroadcastChannel = null
+try {
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    liveBroadcastChannel = new BroadcastChannel('fifa_live_state')
+  }
+} catch {
+  // ignore
+}
+
 export const useTournamentStore = create((set, get) => {
   let commitQueue = Promise.resolve()
 
   async function commit(nextState) {
     const snapshot = persistedSlice(nextState)
+
+    try {
+      liveBroadcastChannel?.postMessage({
+        type: 'STATE_UPDATE',
+        snapshot,
+        timestamp: Date.now(),
+      })
+    } catch {
+      // ignore
+    }
 
     commitQueue = commitQueue
       .then(async () => {
@@ -642,7 +661,18 @@ export const useTournamentStore = create((set, get) => {
       void clearMatchTimer({ tournamentId, matchId: scopedMatchId }).catch(() => null)
     },
 
-    setActiveScreen: (screen) => setState({ activeScreen: screen }),
+    setActiveScreen: (screen) => {
+      try {
+        liveBroadcastChannel?.postMessage({
+          type: 'SCREEN_CHANGE',
+          screen,
+          timestamp: Date.now(),
+        })
+      } catch {
+        // ignore
+      }
+      setState({ activeScreen: screen })
+    },
     setSponsorUrls: (urls) =>
       setState((s) => ({
         ...s,

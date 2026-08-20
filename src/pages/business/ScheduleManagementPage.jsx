@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../auth/useAuth'
+import { useLanguage } from '../../i18n/LanguageContext'
 import { ROLES } from '../../auth/roles'
 import {
   bulkScheduleMatches,
@@ -22,18 +23,13 @@ import {
   readCustomTournamentWorkbook,
 } from '../../utils/tournament/workbookImport'
 import { publishTournamentDetailsToLiveState } from '../../utils/tournament/liveSnapshot'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 const TEAMS_PER_PAGE = 16
 const MATCHES_PER_PAGE = 16
 const MAX_TEAMS = 128
-const KNOCKOUT_STAGE_OPTIONS = [
-  { value: 'all', label: 'كل المراحل' },
-  { value: 'final', label: 'النهائي' },
-  { value: 'semi_final', label: 'نصف النهائي' },
-  { value: 'quarter_final', label: 'ربع النهائي' },
-  { value: 'round_of_16', label: 'دور الـ16' },
-  { value: 'round_of_32', label: 'دور الـ32' },
-]
 
 function toLocalDateTime(value) {
   if (!value) return ''
@@ -118,45 +114,59 @@ function readTeamsFromWorkbook(file) {
   })
 }
 
-async function downloadTeamsExcel(teams, fileName = 'teams.xlsx') {
-  const XLSX = await getXlsx()
-  const rows = teams.map((team) => ({
-    team_name: team.team_name || '',
-    club_name: team.club_name || '',
-  }))
-  const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ team_name: '', club_name: '' }])
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Teams')
-  XLSX.writeFile(workbook, fileName)
-}
-
 export default function ScheduleManagementPage() {
   const { role } = useAuth()
+  const { t, language, isRtl } = useLanguage()
   const isAdmin = role === ROLES.ADMIN
-  const teamsImportRef = useRef(null)
-  const scheduleImportRef = useRef(null)
 
+  const knockoutStageOptions = useMemo(
+    () => [
+      { value: 'all', label: language === 'ar' ? 'كل المراحل' : 'All Knockout Stages' },
+      { value: 'final', label: language === 'ar' ? 'النهائي' : 'Final' },
+      { value: 'semi_final', label: language === 'ar' ? 'نصف النهائي' : 'Semi-Finals' },
+      { value: 'quarter_final', label: language === 'ar' ? 'ربع النهائي' : 'Quarter-Finals' },
+      { value: 'round_of_16', label: language === 'ar' ? 'دور الـ16' : 'Round of 16' },
+      { value: 'round_of_32', label: language === 'ar' ? 'دور الـ32' : 'Round of 32' },
+    ],
+    [language],
+  )
+
+  const [activeTab, setActiveTab] = useState('settings') // 'settings' | 'teams' | 'fixtures' | 'progression' | 'finance' | 'create'
   const [tournaments, setTournaments] = useState([])
   const [selectedTournamentId, setSelectedTournamentId] = useState('')
   const [details, setDetails] = useState(null)
+  const [progress, setProgress] = useState(null)
+  const [financeSummary, setFinanceSummary] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+
   const [createForm, setCreateForm] = useState({
     name: '',
-    format: '\u062f\u0648\u0631\u064a',
-    starts_at: '',
-    sponsor_logo_url: '',
-    home_away_enabled: false,
-    home_away_stages: ['league'],
-  })
-  const [settings, setSettings] = useState({
-    name: '',
-    format: '\u062f\u0648\u0631\u064a',
-    status: 'draft',
+    format: 'دوري',
+    progression_format: 'round_robin',
     starts_at: '',
     ends_at: '',
     sponsor_logo_url: '',
     home_away_enabled: false,
     home_away_stages: ['league'],
+    hybrid_qualifiers_count: 4,
   })
+
+  const [settings, setSettings] = useState({
+    name: '',
+    format: 'دوري',
+    progression_format: 'round_robin',
+    status: 'draft',
+    starts_at: '',
+    ends_at: '',
+    sponsor_logo_url: '',
+    home_away_enabled: false,
+    home_away_stages: [],
+    hybrid_qualifiers_count: 4,
+  })
+
   const [financial, setFinancial] = useState({
     entry_fee: '',
     sponsor_amount: '',
@@ -164,52 +174,60 @@ export default function ScheduleManagementPage() {
     hour_rate: '',
     match_duration_minutes: '',
   })
-  const [financeSummary, setFinanceSummary] = useState(null)
-  const [teams, setTeams] = useState([emptyTeam(), emptyTeam()])
-  const [teamsPage, setTeamsPage] = useState(1)
-  const [matchTimes, setMatchTimes] = useState({})
-  const [matchesPage, setMatchesPage] = useState(1)
-  const [selectedMatches, setSelectedMatches] = useState([])
-  const [bulkSchedule, setBulkSchedule] = useState({
-    date: '',
-    start_time: '18:00',
-    interval_minutes: 30,
-  })
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [progress, setProgress] = useState(null)
 
-  async function loadTournaments() {
-    const rows = await fetchTournaments()
-    setTournaments(rows || [])
-    if (!selectedTournamentId && rows?.[0]?.id) setSelectedTournamentId(String(rows[0].id))
+  const [teams, setTeams] = useState([])
+  const [teamsPage, setTeamsPage] = useState(1)
+  const [matchesPage, setMatchesPage] = useState(1)
+  const [matchTimes, setMatchTimes] = useState({})
+  const [selectedMatches, setSelectedMatches] = useState([])
+  const [matchStageFilter, setMatchStageFilter] = useState('all')
+
+  const [bulkConfig, setBulkConfig] = useState({
+    first_match_starts_at: '',
+    interval_minutes: 15,
+    selected_rounds: [],
+    filter_stage: 'all',
+  })
+
+  const teamsImportRef = useRef(null)
+  const scheduleWorkbookRef = useRef(null)
+
+  function showSuccess(msg) {
+    setSuccessMsg(msg)
+    setTimeout(() => setSuccessMsg(''), 4000)
   }
 
-  async function loadDetails(tournamentId) {
-    if (!tournamentId) return
-    const data = await fetchTournamentDetails(Number(tournamentId))
-    const progressData = await fetchTournamentProgress(Number(tournamentId)).catch(() => null)
-    const financialData = await fetchFinancialSetup(Number(tournamentId)).catch(() => null)
-    const financeSummaryData = await fetchFinanceSummary(Number(tournamentId)).catch(() => null)
+  async function loadTournaments() {
+    const list = await fetchTournaments()
+    setTournaments(list || [])
+    if (list?.length && !selectedTournamentId) {
+      setSelectedTournamentId(String(list[0].id))
+    }
+  }
+
+  async function loadDetails(id) {
+    if (!id) return
+    const [data, financialData, financeSummaryData, progressData] = await Promise.all([
+      fetchTournamentDetails(Number(id)),
+      fetchFinancialSetup(Number(id)).catch(() => null),
+      fetchFinanceSummary(Number(id)).catch(() => null),
+      fetchTournamentProgress(Number(id)).catch(() => null),
+    ])
+
     setDetails(data)
     setSettings({
       name: data?.name || '',
-      format: data?.format || '\u062f\u0648\u0631\u064a',
+      format: data?.format || 'دوري',
+      progression_format: data?.progression_format || (data?.format === 'خروج مغلوب' ? 'knockout' : 'round_robin'),
       status: data?.status || 'draft',
       starts_at: toLocalDateTime(data?.starts_at),
       ends_at: toLocalDateTime(data?.ends_at),
       sponsor_logo_url: data?.sponsor_logo_url || '',
       home_away_enabled: Boolean(data?.home_away_enabled),
-      home_away_stages:
-        Array.isArray(data?.home_away_stages) && data.home_away_stages.length
-          ? data.home_away_stages
-          : data?.home_away_stage
-            ? [data.home_away_stage]
-            : data?.format === 'دوري'
-              ? ['league']
-              : [],
+      home_away_stages: Array.isArray(data?.home_away_stages) ? data.home_away_stages : [],
+      hybrid_qualifiers_count: data?.hybrid_qualifiers_count || 4,
     })
+
     setFinancial({
       entry_fee: String(financialData?.entry_fee ?? ''),
       sponsor_amount: String(financialData?.sponsor_amount ?? ''),
@@ -217,7 +235,9 @@ export default function ScheduleManagementPage() {
       hour_rate: String(financialData?.hour_rate ?? ''),
       match_duration_minutes: String(financialData?.match_duration_minutes ?? ''),
     })
+
     setFinanceSummary(financeSummaryData || null)
+    setProgress(progressData || null)
 
     const nextTeams =
       (data?.teams || []).length > 0
@@ -234,14 +254,12 @@ export default function ScheduleManagementPage() {
     setMatchTimes(nextTimes)
     setMatchesPage(1)
     setSelectedMatches([])
-    setProgress(progressData || null)
+
     await publishTournamentDetailsToLiveState(data)
-    return data
   }
 
   useEffect(() => {
     setLoading(true)
-    setError('')
     loadTournaments()
       .catch((e) => setError(e?.response?.data?.message || 'Failed to load tournaments'))
       .finally(() => setLoading(false))
@@ -252,7 +270,7 @@ export default function ScheduleManagementPage() {
     setLoading(true)
     setError('')
     loadDetails(selectedTournamentId)
-      .catch((e) => setError(e?.response?.data?.message || 'Failed to load tournament details'))
+      .catch((e) => setError(e?.response?.data?.message || 'Failed to load details'))
       .finally(() => setLoading(false))
   }, [selectedTournamentId])
 
@@ -262,71 +280,31 @@ export default function ScheduleManagementPage() {
     return map
   }, [details?.teams])
 
-  const teamsPagesCount = Math.max(1, Math.ceil(teams.length / TEAMS_PER_PAGE))
-  const pagedTeams = useMemo(() => {
-    const start = (teamsPage - 1) * TEAMS_PER_PAGE
-    return teams.slice(start, start + TEAMS_PER_PAGE)
-  }, [teams, teamsPage])
-
   const allMatches = useMemo(() => {
     const list = (details?.matches || []).slice()
     list.sort(compareMatchesByStartTime)
+    if (matchStageFilter !== 'all') {
+      return list.filter((m) => String(m.stage_name || '').toLowerCase() === matchStageFilter.toLowerCase())
+    }
     return list
-  }, [details?.matches])
+  }, [details?.matches, matchStageFilter])
+
   const matchesPagesCount = Math.max(1, Math.ceil(allMatches.length / MATCHES_PER_PAGE))
   const pagedMatches = useMemo(() => {
     const start = (matchesPage - 1) * MATCHES_PER_PAGE
     return allMatches.slice(start, start + MATCHES_PER_PAGE)
   }, [allMatches, matchesPage])
 
-  async function onImportTeams(file) {
-    if (!file) return
-    setError('')
-    try {
-      const imported = await readTeamsFromWorkbook(file)
-      if (!imported.length) {
-        setError('No valid teams found in the uploaded sheet')
-        return
-      }
-      if (imported.length > MAX_TEAMS) {
-        setError(`Maximum ${MAX_TEAMS} teams are allowed`)
-        return
-      }
-      setTeams(imported)
-      setTeamsPage(1)
-    } catch (e) {
-      setError(e?.message || 'Failed to import teams')
-    } finally {
-      if (teamsImportRef.current) teamsImportRef.current.value = ''
-    }
-  }
+  const teamsPagesCount = Math.max(1, Math.ceil(teams.length / TEAMS_PER_PAGE))
+  const pagedTeams = useMemo(() => {
+    const start = (teamsPage - 1) * TEAMS_PER_PAGE
+    return teams.slice(start, start + TEAMS_PER_PAGE)
+  }, [teams, teamsPage])
 
-  async function onImportCustomSchedule(file) {
-    if (!file || !selectedTournamentId) return
-    setSaving(true)
-    setError('')
-    try {
-      const imported = await readCustomTournamentWorkbook(file)
-      if (imported.teams.length > MAX_TEAMS) {
-        setError(`Maximum ${MAX_TEAMS} teams are allowed`)
-        return
-      }
-
-      await importTournamentCustomSchedule(Number(selectedTournamentId), imported)
-      await loadDetails(selectedTournamentId)
-      await loadTournaments()
-    } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Failed to import custom schedule')
-    } finally {
-      setSaving(false)
-      if (scheduleImportRef.current) scheduleImportRef.current.value = ''
-    }
-  }
-
-  async function createNewTournament() {
-    if (!isAdmin) return
+  // Actions
+  async function handleCreateTournament() {
     if (!createForm.name.trim()) {
-      setError('Tournament name is required')
+      setError(language === 'ar' ? 'يرجى إدخال اسم البطولة' : 'Please enter tournament name')
       return
     }
     setSaving(true)
@@ -335,22 +313,19 @@ export default function ScheduleManagementPage() {
       const created = await createTournament({
         name: createForm.name.trim(),
         format: createForm.format,
-        starts_at: createForm.starts_at || null,
-        sponsor_logo_url: createForm.sponsor_logo_url.trim() || null,
-        home_away_enabled: Boolean(createForm.home_away_enabled),
-        home_away_stages: createForm.home_away_enabled ? createForm.home_away_stages : [],
-        teams: [],
+        progression_format: createForm.progression_format,
+        starts_at: toUtcIsoFromLocalDateTime(createForm.starts_at),
+        ends_at: toUtcIsoFromLocalDateTime(createForm.ends_at),
+        sponsor_logo_url: createForm.sponsor_logo_url || null,
+        home_away_enabled: createForm.home_away_enabled,
+        home_away_stages: createForm.home_away_stages,
+        hybrid_qualifiers_count: createForm.hybrid_qualifiers_count,
+        teams: [emptyTeam(), emptyTeam()],
       })
       await loadTournaments()
       setSelectedTournamentId(String(created.id))
-      setCreateForm({
-        name: '',
-        format: createForm.format,
-        starts_at: '',
-        sponsor_logo_url: '',
-        home_away_enabled: false,
-        home_away_stages: createForm.format === 'دوري' ? ['league'] : [],
-      })
+      setActiveTab('settings')
+      showSuccess(language === 'ar' ? 'تم إنشاء البطولة بنجاح!' : 'Tournament created successfully!')
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to create tournament')
     } finally {
@@ -358,122 +333,44 @@ export default function ScheduleManagementPage() {
     }
   }
 
-  async function removeTournament() {
-    if (!isAdmin || !selectedTournamentId) return
-    const ok = window.confirm('Delete this tournament and all related matches/teams/financials?')
-    if (!ok) return
-    setSaving(true)
-    setError('')
-    try {
-      await deleteTournament(Number(selectedTournamentId))
-      const rows = await fetchTournaments()
-      setTournaments(rows || [])
-      setSelectedTournamentId(rows?.[0]?.id ? String(rows[0].id) : '')
-      if (!rows?.length) {
-        setDetails(null)
-      }
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to delete tournament')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function saveSettings(event) {
-    event.preventDefault()
+  async function handleSaveSettings(e) {
+    e?.preventDefault?.()
     if (!selectedTournamentId) return
     setSaving(true)
     setError('')
     try {
-      await updateTournament(Number(selectedTournamentId), {
+      const updated = await updateTournament(Number(selectedTournamentId), {
         name: settings.name.trim(),
         format: settings.format,
+        progression_format: settings.progression_format,
         status: settings.status,
-        starts_at: settings.starts_at || null,
-        ends_at: settings.ends_at || null,
-        sponsor_logo_url: settings.sponsor_logo_url.trim() || null,
-        home_away_enabled: Boolean(settings.home_away_enabled),
-        home_away_stages: settings.home_away_enabled ? settings.home_away_stages : [],
+        starts_at: toUtcIsoFromLocalDateTime(settings.starts_at),
+        ends_at: toUtcIsoFromLocalDateTime(settings.ends_at),
+        sponsor_logo_url: settings.sponsor_logo_url || null,
+        home_away_enabled: settings.home_away_enabled,
+        home_away_stages: settings.home_away_stages,
+        hybrid_qualifiers_count: settings.hybrid_qualifiers_count,
       })
+      setDetails(updated)
+      showSuccess(language === 'ar' ? 'تم حفظ الإعدادات بنجاح!' : 'Settings updated successfully!')
       await loadTournaments()
-      await loadDetails(selectedTournamentId)
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save tournament settings')
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to update tournament')
     } finally {
       setSaving(false)
     }
   }
 
-  async function saveTeams() {
-    if (!selectedTournamentId) return
-    const validTeams = teams.filter((team) => team.team_name.trim())
-    if (validTeams.length > MAX_TEAMS) {
-      setError(`Maximum ${MAX_TEAMS} teams are allowed`)
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      await replaceTournamentTeams(Number(selectedTournamentId), validTeams)
-      await loadDetails(selectedTournamentId)
-      await loadTournaments()
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to save teams')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function saveMatchTime(matchId) {
+  async function handleLaunchTournament() {
     if (!selectedTournamentId) return
     setSaving(true)
     setError('')
     try {
-      const startsAt = toUtcIsoFromLocalDateTime(matchTimes[matchId])
-      await updateMatch(Number(selectedTournamentId), Number(matchId), {
-        starts_at: startsAt,
-      })
-      await loadDetails(selectedTournamentId)
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to update match time')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function applyBulkSchedule() {
-    if (!selectedTournamentId || !selectedMatches.length) return
-    if (!bulkSchedule.date || !bulkSchedule.start_time) {
-      setError('Please select date and start time')
-      return
-    }
-
-    setSaving(true)
-    setError('')
-    try {
-      await bulkScheduleMatches(Number(selectedTournamentId), {
-        match_ids: selectedMatches,
-        date: bulkSchedule.date,
-        start_time: bulkSchedule.start_time,
-        interval_minutes: Number(bulkSchedule.interval_minutes || 30),
-        timezone_offset_minutes: new Date().getTimezoneOffset(),
-      })
-      await loadDetails(selectedTournamentId)
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to apply bulk schedule')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function onLaunchTournament() {
-    if (!selectedTournamentId) return
-    setSaving(true)
-    setError('')
-    try {
-      await launchTournament(Number(selectedTournamentId))
+      const launched = await launchTournament(Number(selectedTournamentId))
+      setDetails(launched)
+      setSettings((s) => ({ ...s, status: launched.status }))
+      showSuccess(language === 'ar' ? 'تم إطلاق البطولة وبدء جدول المباريات!' : 'Tournament launched into LIVE mode!')
       await loadTournaments()
-      await loadDetails(selectedTournamentId)
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to launch tournament')
     } finally {
@@ -481,19 +378,103 @@ export default function ScheduleManagementPage() {
     }
   }
 
-  async function refreshProgressOnly() {
+  async function handleDeleteTournament() {
     if (!selectedTournamentId) return
-    const progressData = await fetchTournamentProgress(Number(selectedTournamentId)).catch(() => null)
-    setProgress(progressData || null)
-  }
-
-  async function onGenerateNextRound() {
-    if (!isAdmin || !selectedTournamentId) return
+    const ok = window.confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذه البطولة وجميع بياناتها؟' : 'Are you sure you want to delete this tournament?')
+    if (!ok) return
     setSaving(true)
     setError('')
     try {
-      await generateTournamentNextRound(Number(selectedTournamentId))
-      await loadDetails(selectedTournamentId)
+      await deleteTournament(Number(selectedTournamentId))
+      showSuccess(language === 'ar' ? 'تم حذف البطولة' : 'Tournament deleted')
+      setSelectedTournamentId('')
+      setDetails(null)
+      await loadTournaments()
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to delete tournament')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSaveTeams() {
+    if (!selectedTournamentId) return
+    const valid = teams.filter((t) => t.team_name.trim())
+    if (valid.length < 2) {
+      setError(language === 'ar' ? 'يجب إدخال فريقين على الأقل' : 'At least 2 teams required')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await replaceTournamentTeams(Number(selectedTournamentId), valid)
+      setDetails(updated)
+      showSuccess(language === 'ar' ? 'تم حفظ وتحديث الفرق وإعادة توليد المباريات!' : 'Teams updated and matches regenerated!')
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to replace teams')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSaveSingleMatch(matchId) {
+    if (!selectedTournamentId) return
+    const timeValue = matchTimes[matchId]
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await updateMatch(Number(selectedTournamentId), Number(matchId), {
+        starts_at: toUtcIsoFromLocalDateTime(timeValue),
+      })
+      setDetails((prev) => ({
+        ...prev,
+        matches: (prev?.matches || []).map((m) => (m.id === updated.id ? updated : m)),
+      }))
+      showSuccess(language === 'ar' ? 'تم تحديث موعد المباراة' : 'Match time updated')
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to update match')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleBulkSchedule() {
+    if (!selectedTournamentId) return
+    if (!bulkConfig.first_match_starts_at) {
+      setError(language === 'ar' ? 'يرجى تحديد موعد انطلاق أول مباراة' : 'Please select first match start time')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await bulkScheduleMatches(Number(selectedTournamentId), {
+        first_match_starts_at: toUtcIsoFromLocalDateTime(bulkConfig.first_match_starts_at),
+        interval_minutes: Number(bulkConfig.interval_minutes) || 15,
+        match_ids: selectedMatches.length ? selectedMatches : undefined,
+      })
+      setDetails(updated)
+      const nextTimes = {}
+      for (const match of updated?.matches || []) nextTimes[match.id] = toLocalDateTime(match.starts_at)
+      setMatchTimes(nextTimes)
+      setSelectedMatches([])
+      showSuccess(language === 'ar' ? 'تم تطبيق الجدولة الجماعية للمباريات بنجاح!' : 'Bulk schedule applied successfully!')
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to bulk schedule')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleGenerateNextRound() {
+    if (!selectedTournamentId) return
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await generateTournamentNextRound(Number(selectedTournamentId))
+      setDetails(updated)
+      const p = await fetchTournamentProgress(Number(selectedTournamentId)).catch(() => null)
+      setProgress(p)
+      showSuccess(language === 'ar' ? 'تم توليد مواجهات الدور التالي بنجاح!' : 'Next round generated!')
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to generate next round')
     } finally {
@@ -501,22 +482,23 @@ export default function ScheduleManagementPage() {
     }
   }
 
-  async function onToggleProgressionLock() {
-    if (!isAdmin || !selectedTournamentId) return
+  async function handleToggleProgressionLock() {
+    if (!selectedTournamentId) return
     setSaving(true)
     setError('')
     try {
-      await setTournamentProgressionLock(Number(selectedTournamentId), !progress?.progressionLocked)
-      await refreshProgressOnly()
+      const res = await setTournamentProgressionLock(Number(selectedTournamentId), !progress?.progressionLocked)
+      setProgress((prev) => ({ ...prev, progressionLocked: res?.progression_locked ?? !prev?.progressionLocked }))
+      showSuccess(language === 'ar' ? 'تم تعديل قفل التقدم' : 'Progression lock toggled')
     } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to toggle progression lock')
+      setError(e?.response?.data?.message || 'Failed to toggle lock')
     } finally {
       setSaving(false)
     }
   }
 
-  async function saveFinancialSetup() {
-    if (!isAdmin || !selectedTournamentId) return
+  async function handleSaveFinancial() {
+    if (!selectedTournamentId) return
     setSaving(true)
     setError('')
     try {
@@ -530,6 +512,7 @@ export default function ScheduleManagementPage() {
       })
       const summary = await fetchFinanceSummary(Number(selectedTournamentId)).catch(() => null)
       setFinanceSummary(summary)
+      showSuccess(language === 'ar' ? 'تم حفظ الإعدادات المالية' : 'Financial setup saved')
     } catch (e) {
       setError(e?.response?.data?.message || 'Failed to save financial setup')
     } finally {
@@ -537,671 +520,788 @@ export default function ScheduleManagementPage() {
     }
   }
 
-  async function clearFinancialSetup() {
-    if (!isAdmin || !selectedTournamentId) return
-    setSaving(true)
-    setError('')
-    try {
-      await deleteFinancialSetup(Number(selectedTournamentId))
-      setFinancial({
-        entry_fee: '',
-        sponsor_amount: '',
-        expected_teams: '',
-        hour_rate: '',
-        match_duration_minutes: '',
-      })
-      setFinanceSummary(null)
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Failed to clear financial setup')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const tabs = [
+    { id: 'settings', label: language === 'ar' ? 'الإعدادات والنمط' : 'Settings & Rules', icon: 'sliders' },
+    { id: 'teams', label: language === 'ar' ? 'الفرق واللاعبين' : 'Teams & Roster', icon: 'users' },
+    { id: 'fixtures', label: language === 'ar' ? 'الجدول والمواعيد' : 'Fixtures & Schedule', icon: 'calendar' },
+    { id: 'progression', label: language === 'ar' ? 'التقدم والأدوار' : 'Progression', icon: 'trophy' },
+    { id: 'finance', label: language === 'ar' ? 'المالية والجوائز' : 'Financials', icon: 'dollar' },
+    { id: 'create', label: language === 'ar' ? '+ بطولة جديدة' : '+ New Championship', icon: 'plus' },
+  ]
 
   return (
-    <section className="space-y-4">
-      {isAdmin ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <p className="text-base font-semibold">Create Tournament</p>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <Field value={createForm.name} onChange={(e) => setCreateForm((s) => ({ ...s, name: e.target.value }))} placeholder="Tournament name" />
-            <select
-              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-              value={createForm.format}
-              onChange={(event) =>
-                setCreateForm((s) => ({
-                  ...s,
-                  format: event.target.value,
-                  home_away_stages: event.target.value === 'دوري' ? ['league'] : [],
-                }))
-              }
-            >
-              <option value={'\u062f\u0648\u0631\u064a'}>League</option>
-              <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
-            </select>
-            <input
-              type="datetime-local"
-              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-              value={createForm.starts_at}
-              onChange={(event) => setCreateForm((s) => ({ ...s, starts_at: event.target.value }))}
-            />
-            <Field
-              value={createForm.sponsor_logo_url}
-              onChange={(e) => setCreateForm((s) => ({ ...s, sponsor_logo_url: e.target.value }))}
-              placeholder="Sponsor logo URL"
-            />
-            <label className="flex min-h-11 items-center gap-2 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                checked={createForm.home_away_enabled}
-                onChange={(event) =>
-                  setCreateForm((s) => ({
-                    ...s,
-                    home_away_enabled: event.target.checked,
-                    home_away_stages: s.format === 'دوري' ? ['league'] : s.home_away_stages || [],
-                  }))
-                }
-              />
-              ذهاب وإياب
-            </label>
-            {createForm.format === 'دوري' ? (
-              <p className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm text-[var(--text-secondary)]">مرحلة الدوري</p>
-            ) : (
-              <div className="grid gap-2 md:col-span-2">
-                {KNOCKOUT_STAGE_OPTIONS.map((option) => {
-                  const checked = createForm.home_away_stages.includes(option.value)
-                  return (
-                    <label key={option.value} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!createForm.home_away_enabled}
-                        onChange={(event) =>
-                          setCreateForm((s) => {
-                            const next = new Set(s.home_away_stages || [])
-                            if (event.target.checked) next.add(option.value)
-                            else next.delete(option.value)
-                            return { ...s, home_away_stages: [...next] }
-                          })
-                        }
-                      />
-                      {option.label}
-                    </label>
-                  )
-                })}
-              </div>
-            )}
+    <section className="space-y-6">
+      {/* Top Header & Tournament Selector Bar */}
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-sky-400/40 bg-sky-500/20 text-sky-400">
+              <AppIcon name="trophy" size={22} />
+            </div>
+            <div>
+              <ShinyText text={t('navSchedule')} className="text-xl font-black text-white" />
+              <p className="text-xs text-slate-400">
+                {language === 'ar' ? 'إدارة البطولات، القواعد، الفرق، الجداول، والجوائز' : 'Tournament workspace, rules, fixtures, rosters, and finances'}
+              </p>
+            </div>
           </div>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={createNewTournament}
-            className="mt-3 min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-          >
-            Create Tournament
-          </button>
-        </div>
-      ) : null}
 
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">Tournament Workspace</h2>
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Tournament Dropdown Selector */}
+          <div className="flex items-center gap-2.5">
+            <label className="text-xs font-bold text-slate-400 hidden sm:block">
+              {language === 'ar' ? 'البطولة النشطة:' : 'Active Tournament:'}
+            </label>
             <select
-              className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+              className="rounded-xl border border-sky-500/30 bg-slate-900/90 px-3.5 py-2 text-xs font-bold text-white focus:border-sky-400 focus:outline-none"
               value={selectedTournamentId}
-              onChange={(event) => setSelectedTournamentId(event.target.value)}
+              onChange={(e) => setSelectedTournamentId(e.target.value)}
             >
-              {tournaments.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} - {translateStatus(item.status)}
+              {tournaments.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.status})
                 </option>
               ))}
             </select>
-            {isAdmin ? (
-              <button
-                type="button"
-                disabled={saving || !selectedTournamentId}
-                onClick={removeTournament}
-                className="min-h-11 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 disabled:opacity-60"
-              >
-                Delete Tournament
-              </button>
-            ) : null}
           </div>
         </div>
-        {details ? (
-          <p className="mt-2 text-sm text-[var(--text-secondary)]">
-            Status: <span className="text-[var(--text-primary)]">{translateStatus(details.status)}</span>
-          </p>
-        ) : null}
-      </div>
 
-      {error ? <p className="rounded-xl border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p> : null}
-      {loading ? <p className="text-sm text-[var(--text-secondary)]">Loading...</p> : null}
+        {/* Workspace Navigation Tabs */}
+        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+          {tabs.map((tab) => {
+            const active = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
+                  active
+                    ? 'border border-sky-400 bg-sky-500/20 text-sky-300 shadow-[0_0_20px_rgba(56,189,248,0.25)]'
+                    : 'border border-transparent bg-white/5 text-slate-400 hover:border-white/10 hover:text-white'
+                }`}
+              >
+                <AppIcon name={tab.icon} size={14} />
+                <span>{tab.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </SpotlightCard>
 
-      {details && isAdmin ? (
-        <>
-          <form className="rounded-2xl border border-white/10 bg-white/5 p-4" onSubmit={saveSettings}>
-            <p className="text-base font-semibold">Core Settings</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <Field value={settings.name} onChange={(e) => setSettings((s) => ({ ...s, name: e.target.value }))} placeholder="Tournament name" />
+      {/* Status Notifications */}
+      {error ? (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-xs font-bold text-rose-200">
+          <AppIcon name="alert" size={16} className="text-rose-400 shrink-0" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      {successMsg ? (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-3.5 text-xs font-bold text-emerald-200">
+          <AppIcon name="check" size={16} className="text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      ) : null}
+
+      {/* TAB 1: Core Settings & Rules */}
+      {activeTab === 'settings' && details ? (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+              <AppIcon name="sliders" size={16} />
+              <span>{language === 'ar' ? 'إعدادات البطولة والقواعد' : 'Tournament Settings & Game Rules'}</span>
+            </h3>
+
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleLaunchTournament}
+                    className="flex items-center gap-1.5 rounded-xl border border-emerald-400 bg-emerald-500 px-4 py-2 text-xs font-black text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition hover:bg-emerald-400 disabled:opacity-50"
+                  >
+                    <AppIcon name="play" size={14} />
+                    <span>{language === 'ar' ? 'إطلاق البطولة الآن' : 'Launch Tournament'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleDeleteTournament}
+                    className="flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-50"
+                  >
+                    <AppIcon name="trash" size={14} />
+                    <span>{language === 'ar' ? 'حذف البطولة' : 'Delete'}</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveSettings} className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentName')}</label>
+              <input
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+                value={settings.name}
+                onChange={(e) => setSettings((s) => ({ ...s, name: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentFormat')}</label>
               <select
-                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
                 value={settings.format}
-                onChange={(event) =>
-                  setSettings((s) => ({
-                    ...s,
-                    format: event.target.value,
-                    home_away_stages: event.target.value === 'دوري' ? ['league'] : [],
-                  }))
-                }
+                onChange={(e) => setSettings((s) => ({ ...s, format: e.target.value }))}
               >
-                <option value={'\u062f\u0648\u0631\u064a'}>League</option>
-                <option value={'\u062e\u0631\u0648\u062c \u0645\u063a\u0644\u0648\u0628'}>Knockout</option>
+                <option value="دوري">{t('formatLeague')}</option>
+                <option value="خروج مغلوب">{t('formatKnockout')}</option>
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                {language === 'ar' ? 'نمط التقدم' : 'Progression Format'}
+              </label>
               <select
-                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-                value={settings.status}
-                onChange={(event) => setSettings((s) => ({ ...s, status: event.target.value }))}
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={settings.progression_format}
+                onChange={(e) => setSettings((s) => ({ ...s, progression_format: e.target.value }))}
               >
-                <option value="draft">Draft</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="live">Live</option>
-                <option value="finished">Finished</option>
+                <option value="round_robin">Round Robin (دوري عام)</option>
+                <option value="knockout">Single Elimination (إقصاء مباشر)</option>
+                <option value="hybrid">Hybrid Groups + Knockout (مجموعات + إقصائيات)</option>
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('status')}</label>
+              <select
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={settings.status}
+                onChange={(e) => setSettings((s) => ({ ...s, status: e.target.value }))}
+              >
+                <option value="draft">Draft (مسودة)</option>
+                <option value="scheduled">Scheduled (مجدولة)</option>
+                <option value="live">Live (مباشرة الآن)</option>
+                <option value="finished">Finished (منتهية)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentStartTime')}</label>
               <input
                 type="datetime-local"
-                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
                 value={settings.starts_at}
-                onChange={(event) => setSettings((s) => ({ ...s, starts_at: event.target.value }))}
+                onChange={(e) => setSettings((s) => ({ ...s, starts_at: e.target.value }))}
               />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                {language === 'ar' ? 'موعد نهاية البطولة' : 'Tournament End Time'}
+              </label>
               <input
                 type="datetime-local"
-                className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
                 value={settings.ends_at}
-                onChange={(event) => setSettings((s) => ({ ...s, ends_at: event.target.value }))}
+                onChange={(e) => setSettings((s) => ({ ...s, ends_at: e.target.value }))}
               />
-              <Field
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('sponsorLogoUrl')}</label>
+              <input
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
                 value={settings.sponsor_logo_url}
                 onChange={(e) => setSettings((s) => ({ ...s, sponsor_logo_url: e.target.value }))}
-                placeholder="Sponsor logo URL"
-                className="md:col-span-2"
+                placeholder="https://.../sponsor.png"
               />
-              <label className="flex min-h-11 items-center gap-2 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+            </div>
+
+            {/* Home & Away Stage Selector */}
+            <div className="sm:col-span-2 rounded-xl border border-white/10 bg-slate-900/50 p-4 space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
+                  className="h-4 w-4 rounded border-slate-700 text-sky-500"
                   checked={settings.home_away_enabled}
-                  onChange={(event) =>
-                    setSettings((s) => ({
-                      ...s,
-                      home_away_enabled: event.target.checked,
-                      home_away_stages: s.format === 'دوري' ? ['league'] : s.home_away_stages || [],
-                    }))
-                  }
+                  onChange={(e) => setSettings((s) => ({ ...s, home_away_enabled: e.target.checked }))}
                 />
-                ذهاب وإياب
+                <div>
+                  <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <AppIcon name="exchange" size={15} className="text-sky-400" />
+                    <span>{t('homeAwayTitle')}</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {settings.home_away_enabled ? t('homeAwayDouble') : t('homeAwaySingle')}
+                  </p>
+                </div>
               </label>
-              {settings.format === 'دوري' ? (
-                <p className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 text-sm text-[var(--text-secondary)]">مرحلة الدوري</p>
-              ) : (
-                <div className="grid gap-2 md:col-span-2">
-                  {KNOCKOUT_STAGE_OPTIONS.map((option) => {
-                    const checked = settings.home_away_stages.includes(option.value)
+
+              {settings.home_away_enabled && settings.format === 'خروج مغلوب' ? (
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 sm:grid-cols-3">
+                  {knockoutStageOptions.map((opt) => {
+                    const checked = settings.home_away_stages.includes(opt.value)
                     return (
-                      <label key={option.value} className="flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-sm">
+                      <label key={opt.value} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!settings.home_away_enabled}
-                          onChange={(event) =>
-                            setSettings((s) => {
-                              const next = new Set(s.home_away_stages || [])
-                              if (event.target.checked) next.add(option.value)
-                              else next.delete(option.value)
-                              return { ...s, home_away_stages: [...next] }
-                            })
-                          }
+                          onChange={(e) => {
+                            const next = new Set(settings.home_away_stages || [])
+                            if (e.target.checked) next.add(opt.value)
+                            else next.delete(opt.value)
+                            setSettings((s) => ({ ...s, home_away_stages: [...next] }))
+                          }}
                         />
-                        {option.label}
+                        <span>{opt.label}</span>
                       </label>
                     )
                   })}
                 </div>
-              )}
+              ) : null}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-              >
-                Save Settings
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onLaunchTournament}
-                className="min-h-11 rounded-2xl border border-emerald-300/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200 disabled:opacity-60"
-              >
-                Launch Tournament
-              </button>
-            </div>
+
+            {isAdmin && (
+              <div className="sm:col-span-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-2 rounded-xl border border-sky-400 bg-sky-500 px-6 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50"
+                >
+                  <AppIcon name="save" size={15} />
+                  <span>{saving ? t('loading') : (language === 'ar' ? 'حفظ تعديلات الإعدادات' : 'Save Settings')}</span>
+                </button>
+              </div>
+            )}
           </form>
+        </SpotlightCard>
+      ) : null}
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-base font-semibold">Financial Setup</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-5">
-              <Field
-                value={financial.entry_fee}
-                onChange={(e) => setFinancial((s) => ({ ...s, entry_fee: e.target.value }))}
-                placeholder="Entry fee"
-              />
-              <Field
-                value={financial.sponsor_amount}
-                onChange={(e) => setFinancial((s) => ({ ...s, sponsor_amount: e.target.value }))}
-                placeholder="Sponsor amount"
-              />
-              <Field
-                value={financial.expected_teams}
-                onChange={(e) => setFinancial((s) => ({ ...s, expected_teams: e.target.value }))}
-                placeholder="Expected teams"
-              />
-              <Field
-                value={financial.hour_rate}
-                onChange={(e) => setFinancial((s) => ({ ...s, hour_rate: e.target.value }))}
-                placeholder="Hour rate (EGP)"
-              />
-              <Field
-                value={financial.match_duration_minutes}
-                onChange={(e) => setFinancial((s) => ({ ...s, match_duration_minutes: e.target.value }))}
-                placeholder="Match duration (min)"
-              />
+      {/* TAB 2: Teams & Rosters */}
+      {activeTab === 'teams' && (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+                <AppIcon name="users" size={16} />
+                <span>{language === 'ar' ? `الفرق المسجلة (${teams.length})` : `Registered Teams (${teams.length})`}</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {language === 'ar' ? 'يمكن إضافة الفرق يدوياً أو استيرادها دفعة واحدة من ملف Excel.' : 'Manage rosters manually or import in bulk from Excel.'}
+              </p>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={saving}
-                onClick={saveFinancialSetup}
-                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-              >
-                Save Financial Setup
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={clearFinancialSetup}
-                className="min-h-11 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 disabled:opacity-60"
-              >
-                Delete Financial Setup
-              </button>
-            </div>
-            {financeSummary ? (
-              <div className="mt-3 grid gap-2 text-xs text-[var(--text-secondary)] md:grid-cols-8">
-                <Stat label="Revenue" value={financeSummary.total_revenue} />
-                <Stat label="Costs" value={financeSummary.total_costs} />
-                <Stat label="Operating Costs" value={financeSummary.operating_costs} />
-                <Stat label="Manual Costs" value={financeSummary.manual_costs} />
-                <Stat label="Net" value={financeSummary.net_profit} />
-                <Stat label="Margin %" value={financeSummary.profit_margin} />
-                <Stat label="Break-even Teams" value={financeSummary.break_even_teams} />
-                <Stat label="Total Matches" value={financeSummary.total_matches} />
-              </div>
-            ) : null}
-          </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-base font-semibold">Progression Monitor</p>
-              <span className="text-xs text-[var(--text-secondary)]">Status: {progress?.status || '--'}</span>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
-              <Stat label="Current Stage" value={progress?.currentStage ?? '--'} />
-              <Stat label="Current Round" value={progress?.currentRound ?? '--'} />
-              <Stat label="Completed Matches" value={progress?.completedMatches ?? '--'} />
-              <Stat label="Total Matches" value={progress?.totalMatches ?? '--'} />
-            </div>
-            <div className="mt-3">
-              <div className="mb-1 flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                <span>Round Progress</span>
-                <span>{Number(progress?.progressPercent || 0).toFixed(2)}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div className="h-full bg-[var(--primary-color)]" style={{ width: `${Math.max(0, Math.min(100, Number(progress?.progressPercent || 0)))}%` }} />
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={saving || !progress?.isComplete || progress?.progressionLocked}
-                onClick={onGenerateNextRound}
-                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-              >
-                Generate Next Round
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onToggleProgressionLock}
-                className="min-h-11 rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-sm disabled:opacity-60"
-              >
-                {progress?.progressionLocked ? 'Unlock Progression' : 'Lock Progression'}
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-base font-semibold">Custom Schedule Import</p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  Upload a workbook with `Teams` and `Matches` sheets. This replaces the selected tournament&apos;s teams, matches, and standings.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  ref={scheduleImportRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={(event) => onImportCustomSchedule(event.target.files?.[0])}
-                />
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={saving || !selectedTournamentId}
-                  onClick={() => scheduleImportRef.current?.click()}
-                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs disabled:opacity-60"
+                  onClick={() => setTeams((s) => [...s, emptyTeam()])}
+                  className="flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/20 px-3.5 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-500/30"
                 >
-                  Import Workbook
+                  <AppIcon name="plus" size={14} />
+                  <span>{t('addTeam')}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadCustomTournamentTemplate()}
-                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
-                >
-                  Download Custom Template
-                </button>
-              </div>
-            </div>
-          </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-base font-semibold">Teams</p>
-              <div className="flex flex-wrap gap-2">
                 <input
                   ref={teamsImportRef}
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xls"
                   className="hidden"
-                  onChange={(event) => onImportTeams(event.target.files?.[0])}
-                />
-                <button type="button" onClick={() => teamsImportRef.current?.click()} className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs">
-                  Import Excel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadTeamsExcel([], 'teams_template.xlsx')}
-                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
-                >
-                  Download Template
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadTeamsExcel(teams, 'teams_export.xlsx')}
-                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
-                >
-                  Export Excel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTeams((state) => {
-                      const next = [...state, emptyTeam()]
-                      setTeamsPage(Math.max(1, Math.ceil(next.length / TEAMS_PER_PAGE)))
-                      return next
-                    })
-                  }}
-                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs"
-                >
-                  Add Team
-                </button>
-              </div>
-            </div>
-
-            <p className="mt-2 text-xs text-[var(--text-secondary)]">
-              {teams.length} teams loaded. Designed for up to {MAX_TEAMS} teams.
-            </p>
-
-            <div className="mt-3 space-y-2">
-              {pagedTeams.map((team, localIndex) => {
-                const index = (teamsPage - 1) * TEAMS_PER_PAGE + localIndex
-                return (
-                  <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-                    <Field
-                      value={team.team_name}
-                      onChange={(e) => setTeams((state) => state.map((t, i) => (i === index ? { ...t, team_name: e.target.value } : t)))}
-                      placeholder="Team name"
-                    />
-                    <Field
-                      value={team.club_name}
-                      onChange={(e) => setTeams((state) => state.map((t, i) => (i === index ? { ...t, club_name: e.target.value } : t)))}
-                      placeholder="Club name"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTeams((state) => {
-                          const next = state.filter((_, i) => i !== index)
-                          const safeNext = next.length ? next : [emptyTeam(), emptyTeam()]
-                          const nextPages = Math.max(1, Math.ceil(safeNext.length / TEAMS_PER_PAGE))
-                          setTeamsPage((p) => Math.min(p, nextPages))
-                          return safeNext
-                        })
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    try {
+                      const imported = await readTeamsFromWorkbook(file)
+                      if (imported.length) {
+                        setTeams(imported)
+                        showSuccess(language === 'ar' ? `تم استيراد ${imported.length} فريقاً` : `Imported ${imported.length} teams`)
                       }
-                      className="rounded-xl border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-
-            <Pager page={teamsPage} pagesCount={teamsPagesCount} onChange={setTeamsPage} />
-
-            <button
-              type="button"
-              disabled={saving}
-              onClick={saveTeams}
-              className="mt-3 min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-            >
-              Save Teams
-            </button>
-          </div>
-        </>
-      ) : null}
-
-      {details ? (
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-          {isAdmin ? (
-            <div className="border-b border-white/10 p-4">
-              <p className="text-sm font-semibold">Schedule Selected Matches</p>
-              <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
-                <input
-                  type="date"
-                  className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2"
-                  value={bulkSchedule.date}
-                  onChange={(event) => setBulkSchedule((s) => ({ ...s, date: event.target.value }))}
+                    } catch {
+                      setError(language === 'ar' ? 'فشل قراءة ملف Excel' : 'Failed to read Excel file')
+                    }
+                  }}
                 />
-                <input
-                  type="time"
-                  className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2"
-                  value={bulkSchedule.start_time}
-                  onChange={(event) => setBulkSchedule((s) => ({ ...s, start_time: event.target.value }))}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2"
-                  value={bulkSchedule.interval_minutes}
-                  onChange={(event) => setBulkSchedule((s) => ({ ...s, interval_minutes: event.target.value }))}
-                  placeholder="Interval minutes"
-                />
+
                 <button
                   type="button"
-                  disabled={saving || selectedMatches.length === 0}
-                  onClick={applyBulkSchedule}
-                  className="rounded-xl bg-[var(--primary-color)] px-3 py-2 text-xs font-semibold text-[#07162b] disabled:opacity-60"
+                  onClick={() => teamsImportRef.current?.click()}
+                  className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-white/10"
                 >
-                  Apply to {selectedMatches.length} matches
+                  <AppIcon name="download" size={14} />
+                  <span>{language === 'ar' ? 'استيراد من Excel' : 'Import Excel'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSaveTeams}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-400 bg-emerald-500 px-5 py-2 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  <AppIcon name="save" size={14} />
+                  <span>{saving ? t('loading') : (language === 'ar' ? 'حفظ الفرق وتوليد المباريات' : 'Save & Regenerate Fixtures')}</span>
                 </button>
               </div>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {pagedTeams.map((team, idx) => {
+              const realIndex = (teamsPage - 1) * TEAMS_PER_PAGE + idx
+              return (
+                <div key={realIndex} className="rounded-xl border border-white/10 bg-slate-900/60 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-400">
+                      {language === 'ar' ? `فريق #${realIndex + 1}` : `Team #${realIndex + 1}`}
+                    </span>
+                    {teams.length > 2 && isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => setTeams((s) => s.filter((_, tIdx) => tIdx !== realIndex))}
+                        className="text-rose-400 hover:text-rose-300 p-1"
+                      >
+                        <AppIcon name="trash" size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <input
+                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+                    placeholder={t('teamName')}
+                    value={team.team_name}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setTeams((s) => s.map((item, tIdx) => (tIdx === realIndex ? { ...item, team_name: val } : item)))
+                    }}
+                  />
+
+                  <input
+                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+                    placeholder={t('clubName')}
+                    value={team.club_name}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setTeams((s) => s.map((item, tIdx) => (tIdx === realIndex ? { ...item, club_name: val } : item)))
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {teamsPagesCount > 1 ? (
+            <div className="flex items-center justify-center gap-2 pt-3">
+              {Array.from({ length: teamsPagesCount }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setTeamsPage(i + 1)}
+                  className={`h-7 w-7 rounded-lg text-xs font-bold ${
+                    teamsPage === i + 1 ? 'bg-sky-400 text-black' : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
             </div>
           ) : null}
-          <table className="min-w-full text-right text-sm">
-            <thead className="bg-white/5 text-[var(--text-secondary)]">
-              <tr>
-                {isAdmin ? <th className="px-4 py-3">Select</th> : null}
-                <th className="px-4 py-3">Stage</th>
-                <th className="px-4 py-3">Match</th>
-                <th className="px-4 py-3 text-left" dir="ltr">
-                  Start time
-                </th>
-                {isAdmin ? <th className="px-4 py-3">Action</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {allMatches.length ? (
-                pagedMatches.map((match) => (
-                  <tr key={match.id} className="border-t border-white/10">
-                    {isAdmin ? (
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedMatches.includes(match.id)}
-                          onChange={(event) =>
-                            setSelectedMatches((state) =>
-                              event.target.checked ? [...state, match.id] : state.filter((id) => id !== match.id),
-                            )
-                          }
-                        />
-                      </td>
-                    ) : null}
-                    <td className="px-4 py-3 text-[var(--text-secondary)]">{formatStageName(match)}</td>
-                    <td className="px-4 py-3">
-                      {(teamNameById.get(Number(match.home_team_id)) || '---') + ' vs ' + (teamNameById.get(Number(match.away_team_id)) || '---')}
-                    </td>
-                    <td className="px-4 py-3 text-left text-[var(--text-secondary)]" dir="ltr">
-                      {isAdmin ? (
-                        <input
-                          type="datetime-local"
-                          className="min-h-10 rounded-xl border border-white/15 bg-black/25 px-3 py-2 text-left"
-                          dir="ltr"
-                          value={matchTimes[match.id] || ''}
-                          onChange={(event) => setMatchTimes((state) => ({ ...state, [match.id]: event.target.value }))}
-                        />
-                      ) : (
-                        formatEnglishDateTime(match.starts_at)
-                      )}
-                    </td>
-                    {isAdmin ? (
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          disabled={saving}
-                          onClick={() => saveMatchTime(match.id)}
-                          className="rounded-xl bg-[var(--primary-color)] px-3 py-2 text-xs font-semibold text-[#07162b] disabled:opacity-60"
-                        >
-                          Save
-                        </button>
-                      </td>
-                    ) : null}
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={isAdmin ? 5 : 3}>
-                    No matches yet. Save teams first to generate fixtures or import a custom workbook.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="border-t border-white/10 px-4 py-3">
-            <p className="mb-2 text-xs text-[var(--text-secondary)]">Total matches: {allMatches.length}. Optimized for 64+ matches.</p>
-            <Pager page={matchesPage} pagesCount={matchesPagesCount} onChange={setMatchesPage} />
+        </SpotlightCard>
+      )}
+
+      {/* TAB 3: Fixtures & Bulk Schedule */}
+      {activeTab === 'fixtures' && (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+                <AppIcon name="calendar" size={16} />
+                <span>{language === 'ar' ? `جدول المباريات والمواعيد (${allMatches.length})` : `Match Fixtures (${allMatches.length})`}</span>
+              </h3>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => downloadCustomTournamentTemplate(details)}
+                className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-white/10"
+              >
+                <AppIcon name="download" size={13} />
+                <span>{language === 'ar' ? 'تحميل نموذج Excel' : 'Excel Template'}</span>
+              </button>
+
+              <input
+                ref={scheduleWorkbookRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (!file || !selectedTournamentId) return
+                  try {
+                    const payload = await readCustomTournamentWorkbook(file)
+                    const updated = await importTournamentCustomSchedule(Number(selectedTournamentId), payload)
+                    setDetails(updated)
+                    showSuccess(language === 'ar' ? 'تم استيراد جدول المباريات المخصص بنجاح!' : 'Schedule imported successfully!')
+                  } catch (err) {
+                    setError(err?.response?.data?.message || 'Failed to import workbook')
+                  }
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => scheduleWorkbookRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20"
+              >
+                <AppIcon name="save" size={13} />
+                <span>{language === 'ar' ? 'استيراد جدول مخصص' : 'Import Schedule'}</span>
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
+
+          {/* Bulk Scheduler Banner */}
+          {isAdmin && (
+            <div className="rounded-2xl border border-sky-500/20 bg-slate-900/80 p-4 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                <AppIcon name="sparkles" size={15} />
+                <span>{language === 'ar' ? 'الجدولة التلقائية الذكية للمباريات' : 'Smart Bulk Auto-Scheduler'}</span>
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold text-slate-300">
+                    {language === 'ar' ? 'موعد انطلاق أول مباراة' : 'First Match Start Time'}
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                    value={bulkConfig.first_match_starts_at}
+                    onChange={(e) => setBulkConfig((s) => ({ ...s, first_match_starts_at: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold text-slate-300">
+                    {language === 'ar' ? 'الفاصل الزمني بين المباريات (بالدقائق)' : 'Interval Between Matches (Mins)'}
+                  </label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="120"
+                    className="w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                    value={bulkConfig.interval_minutes}
+                    onChange={(e) => setBulkConfig((s) => ({ ...s, interval_minutes: Number(e.target.value) || 15 }))}
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleBulkSchedule}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-sky-400 bg-sky-500 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50"
+                  >
+                    <AppIcon name="calendar" size={14} />
+                    <span>{language === 'ar' ? 'تطبيق الجدولة التلقائية' : 'Apply Bulk Schedule'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Matches List */}
+          <div className="space-y-2.5">
+            {pagedMatches.map((match) => {
+              const home = teamNameById.get(match.home_team_id) || '--'
+              const away = teamNameById.get(match.away_team_id) || '--'
+              return (
+                <div
+                  key={match.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 p-3.5 transition hover:border-white/20"
+                >
+                  <div className="min-w-0 flex items-center gap-3">
+                    <span className="rounded-lg bg-black/50 px-2 py-1 font-mono text-xs font-bold text-slate-400">
+                      #{match.order || match.id}
+                    </span>
+                    <div>
+                      <p className="text-xs font-bold text-white">
+                        {home} <span className="text-amber-400 font-mono">VS</span> {away}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {match.stage_name || `Round ${match.round_number}`} • {match.status}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                        value={matchTimes[match.id] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setMatchTimes((s) => ({ ...s, [match.id]: val }))
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleSaveSingleMatch(match.id)}
+                        className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20"
+                      >
+                        {language === 'ar' ? 'حفظ' : 'Save'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {matchesPagesCount > 1 ? (
+            <div className="flex items-center justify-center gap-2 pt-3">
+              {Array.from({ length: matchesPagesCount }, (_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setMatchesPage(i + 1)}
+                  className={`h-7 w-7 rounded-lg text-xs font-bold ${
+                    matchesPage === i + 1 ? 'bg-sky-400 text-black' : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </SpotlightCard>
+      )}
+
+      {/* TAB 4: Progression & Rounds */}
+      {activeTab === 'progression' && (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+              <AppIcon name="trophy" size={16} />
+              <span>{language === 'ar' ? 'إدارة التقدم والأدوار الإقصائية' : 'Round Progression & Advancements'}</span>
+            </h3>
+
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleToggleProgressionLock}
+                  className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition ${
+                    progress?.progressionLocked
+                      ? 'border-rose-500/40 bg-rose-500/20 text-rose-300'
+                      : 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300'
+                  }`}
+                >
+                  <AppIcon name={progress?.progressionLocked ? 'lock' : 'check'} size={14} />
+                  <span>
+                    {progress?.progressionLocked
+                      ? (language === 'ar' ? 'التقدم مقفل (اضغط للفتح)' : 'Locked (Click to Unlock)')
+                      : (language === 'ar' ? 'التقدم مفتوح (اضغط للقفل)' : 'Unlocked (Click to Lock)')}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleGenerateNextRound}
+                  className="flex items-center gap-1.5 rounded-xl border border-sky-400 bg-sky-500 px-4 py-2 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50"
+                >
+                  <AppIcon name="sparkles" size={14} />
+                  <span>{language === 'ar' ? 'توليد مواجهات الدور التالي' : 'Generate Next Round'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
+              <span className="text-xs text-slate-400">{language === 'ar' ? 'حالة الجولة الحالية' : 'Round Status'}</span>
+              <p className="text-lg font-black text-white mt-1">
+                {progress?.canAdvance ? (
+                  <span className="text-emerald-400">{language === 'ar' ? 'مكتملة وجاهزة للتقدم' : 'Ready to Advance'}</span>
+                ) : (
+                  <span className="text-amber-400">{language === 'ar' ? 'قيد اللعب والتنافس' : 'Matches in Progress'}</span>
+                )}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
+              <span className="text-xs text-slate-400">{language === 'ar' ? 'المباريات المكتملة' : 'Completed Matches'}</span>
+              <p className="text-lg font-black text-white mt-1">
+                {progress?.completedMatchesCount ?? 0} / {progress?.totalMatchesCount ?? 0}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
+              <span className="text-xs text-slate-400">{language === 'ar' ? 'نسبة الإنجاز' : 'Completion Rate'}</span>
+              <p className="text-lg font-black text-sky-400 mt-1 font-mono">
+                {progress?.totalMatchesCount
+                  ? Math.round(((progress.completedMatchesCount || 0) / progress.totalMatchesCount) * 100)
+                  : 0}
+                %
+              </p>
+            </div>
+          </div>
+        </SpotlightCard>
+      )}
+
+      {/* TAB 5: Financials */}
+      {activeTab === 'finance' && (
+        <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-5">
+          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+              <AppIcon name="dollar" size={16} />
+              <span>{language === 'ar' ? 'الإعداد المالي والجوائز المالية' : 'Tournament Financial Setup & Prize Pool'}</span>
+            </h3>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('entryFee')}</label>
+              <input
+                type="number"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={financial.entry_fee}
+                onChange={(e) => setFinancial((s) => ({ ...s, entry_fee: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('sponsorAmount')}</label>
+              <input
+                type="number"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={financial.sponsor_amount}
+                onChange={(e) => setFinancial((s) => ({ ...s, sponsor_amount: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('hourRate')}</label>
+              <input
+                type="number"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={financial.hour_rate}
+                onChange={(e) => setFinancial((s) => ({ ...s, hour_rate: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                {language === 'ar' ? 'مدة المباراة (دقائق)' : 'Match Duration (Mins)'}
+              </label>
+              <input
+                type="number"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={financial.match_duration_minutes}
+                onChange={(e) => setFinancial((s) => ({ ...s, match_duration_minutes: e.target.value }))}
+              />
+            </div>
+
+            {isAdmin && (
+              <div className="sm:col-span-2 md:col-span-4 pt-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSaveFinancial}
+                  className="flex items-center gap-2 rounded-xl border border-emerald-400 bg-emerald-500 px-6 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  <AppIcon name="save" size={15} />
+                  <span>{saving ? t('loading') : (language === 'ar' ? 'حفظ الحسابات المالية' : 'Save Financial Calculations')}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </SpotlightCard>
+      )}
+
+      {/* TAB 6: Create New Championship */}
+      {activeTab === 'create' && (
+        <SpotlightCard className="border border-sky-500/30 bg-slate-950/90 p-6 space-y-5">
+          <div className="border-b border-white/10 pb-4">
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <AppIcon name="plus" size={18} className="text-sky-400" />
+              <span>{language === 'ar' ? 'إنشاء بطولة فيفا جديدة' : 'Create New FIFA Championship'}</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {language === 'ar' ? 'حدد القواعد والنمط والتواريخ لإنشاء البطولة ومزامنة شاشات العرض.' : 'Configure parameters to deploy tournament and sync spectator displays.'}
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentName')}</label>
+              <input
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+                placeholder={t('tournamentNamePlaceholder')}
+                value={createForm.name}
+                onChange={(e) => setCreateForm((s) => ({ ...s, name: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentFormat')}</label>
+              <select
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={createForm.format}
+                onChange={(e) => setCreateForm((s) => ({ ...s, format: e.target.value }))}
+              >
+                <option value="دوري">{t('formatLeague')}</option>
+                <option value="خروج مغلوب">{t('formatKnockout')}</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                {language === 'ar' ? 'نمط التقدم' : 'Progression Format'}
+              </label>
+              <select
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={createForm.progression_format}
+                onChange={(e) => setCreateForm((s) => ({ ...s, progression_format: e.target.value }))}
+              >
+                <option value="round_robin">Round Robin (دوري عام)</option>
+                <option value="knockout">Single Elimination (إقصاء مباشر)</option>
+                <option value="hybrid">Hybrid Groups + Knockout (مجموعات + إقصائيات)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-300">{t('tournamentStartTime')}</label>
+              <input
+                type="datetime-local"
+                className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white focus:border-sky-400 focus:outline-none"
+                value={createForm.starts_at}
+                onChange={(e) => setCreateForm((s) => ({ ...s, starts_at: e.target.value }))}
+              />
+            </div>
+
+            <div className="sm:col-span-2 pt-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleCreateTournament}
+                className="flex items-center gap-2 rounded-xl border border-sky-400 bg-sky-500 px-6 py-2.5 text-xs font-bold text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)] transition hover:bg-sky-400 disabled:opacity-50"
+              >
+                <AppIcon name="plus" size={15} />
+                <span>{saving ? t('loading') : (language === 'ar' ? 'إنشاء البطولة وبدء إعداد الفرق' : 'Create Tournament & Configure Teams')}</span>
+              </button>
+            </div>
+          </div>
+        </SpotlightCard>
+      )}
     </section>
   )
-}
-
-function Field({ value, onChange, placeholder, className = '' }) {
-  return (
-    <input
-      className={`min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2 ${className}`.trim()}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-    />
-  )
-}
-
-function Pager({ page, pagesCount, onChange }) {
-  if (pagesCount <= 1) return null
-  return (
-    <div className="mt-3 flex items-center justify-end gap-2">
-      <button type="button" onClick={() => onChange(Math.max(1, page - 1))} className="rounded-xl border border-white/15 bg-white/5 px-3 py-1 text-xs">
-        Prev
-      </button>
-      <span className="text-xs text-[var(--text-secondary)]">
-        Page {page} of {pagesCount}
-      </span>
-      <button type="button" onClick={() => onChange(Math.min(pagesCount, page + 1))} className="rounded-xl border border-white/15 bg-white/5 px-3 py-1 text-xs">
-        Next
-      </button>
-    </div>
-  )
-}
-
-function Stat({ label, value }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide">{label}</p>
-      <p className="mt-1 text-sm text-[var(--text-primary)]">{value ?? '--'}</p>
-    </div>
-  )
-}
-
-function translateStatus(status) {
-  if (status === 'draft') return 'Draft'
-  if (status === 'scheduled') return 'Scheduled'
-  if (status === 'live') return 'Live'
-  if (status === 'finished') return 'Finished'
-  return 'Unknown'
-}
-
-function formatStageName(match) {
-  const base = String(match?.stage_name || '').trim()
-  const stageNumber = Number(match?.stage_number || 0)
-  const roundNumber = Number(match?.round_number || 1)
-  const fallback = stageNumber > 0 ? `Stage ${stageNumber} - Round ${roundNumber}` : `Round ${roundNumber}`
-  const leg = Number(match?.leg_number || 1)
-  const label = base || fallback
-  if (leg === 2) return `${label} - Leg 2`
-  if (leg === 1) return `${label} - Leg 1`
-  return label
-}
-
-function formatEnglishDateTime(value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '--'
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    hour12: true,
-  }).format(date)
 }

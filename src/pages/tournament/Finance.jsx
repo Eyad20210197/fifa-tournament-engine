@@ -1,5 +1,6 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../auth/useAuth'
+import { useLanguage } from '../../i18n/LanguageContext'
 import { ROLES } from '../../auth/roles'
 import { fetchTournaments } from '../../services/tournamentService'
 import {
@@ -11,10 +12,13 @@ import {
   fetchFinanceSummary,
   upsertFinancialSetup,
 } from '../../services/financeService'
-import { formatArabicCurrency, formatArabicDateTime, formatArabicNumber, formatArabicPercent } from '../../utils/format'
+import AppIcon from '../../components/common/AppIcon'
+import ShinyText from '../../components/reactbits/ShinyText'
+import SpotlightCard from '../../components/reactbits/SpotlightCard'
 
 export default function Finance() {
   const { role } = useAuth()
+  const { t, language, isRtl } = useLanguage()
   const isAdmin = role === ROLES.ADMIN
 
   const [tournaments, setTournaments] = useState([])
@@ -37,8 +41,8 @@ export default function Finance() {
   useEffect(() => {
     fetchTournaments()
       .then((data) => {
-        setTournaments(data)
-        if (data[0]?.id) setSelectedTournamentId(String(data[0].id))
+        setTournaments(data || [])
+        if (data?.[0]?.id) setSelectedTournamentId(String(data[0].id))
       })
       .catch(() => setTournaments([]))
   }, [])
@@ -67,7 +71,7 @@ export default function Finance() {
     } catch (requestError) {
       setSummary(null)
       setExpenses([])
-      setError(requestError?.response?.data?.message || 'تعذر تحميل البيانات المالية')
+      setError(requestError?.response?.data?.message || (language === 'ar' ? 'تعذر تحميل البيانات المالية' : 'Failed to load finance data'))
     } finally {
       setLoading(false)
     }
@@ -77,24 +81,19 @@ export default function Finance() {
     void loadFinanceData(selectedTournamentId)
   }, [selectedTournamentId])
 
-  const cards = useMemo(
+  const kpis = useMemo(
     () => [
-      { key: 'revenue', label: 'إجمالي الإيرادات', value: formatArabicCurrency(summary?.total_revenue || 0) },
-      { key: 'costs', label: 'إجمالي المصروفات', value: formatArabicCurrency(summary?.total_costs || 0) },
-      { key: 'operating-costs', label: 'تكلفة التشغيل', value: formatArabicCurrency(summary?.operating_costs || 0) },
-      { key: 'manual-costs', label: 'مصروفات يدوية', value: formatArabicCurrency(summary?.manual_costs || 0) },
-      { key: 'profit', label: 'صافي الربح', value: formatArabicCurrency(summary?.net_profit || 0) },
-      { key: 'margin', label: 'نسبة الربح', value: formatArabicPercent(summary?.profit_margin || 0) },
-      { key: 'break', label: 'نقطة التعادل', value: `${formatArabicNumber(summary?.break_even_teams || 0)} فريق` },
-      { key: 'matches', label: 'إجمالي المباريات', value: formatArabicNumber(summary?.total_matches || 0) },
+      { key: 'revenue', label: language === 'ar' ? 'إجمالي الإيرادات' : 'Total Revenue', value: `${(summary?.total_revenue || 0).toLocaleString()} EGP`, icon: 'dollar', color: 'text-emerald-400', border: 'border-emerald-500/30' },
+      { key: 'costs', label: language === 'ar' ? 'إجمالي المصروفات' : 'Total Expenses', value: `${(summary?.total_costs || 0).toLocaleString()} EGP`, icon: 'alert', color: 'text-rose-400', border: 'border-rose-500/30' },
+      { key: 'profit', label: language === 'ar' ? 'صافي الربح' : 'Net Profit', value: `${(summary?.net_profit || 0).toLocaleString()} EGP`, icon: 'trophy', color: 'text-sky-400', border: 'border-sky-500/30' },
+      { key: 'margin', label: language === 'ar' ? 'هامش الربح' : 'Profit Margin', value: `${summary?.profit_margin || 0}%`, icon: 'chart', color: 'text-amber-400', border: 'border-amber-500/30' },
     ],
-    [summary],
+    [summary, language],
   )
 
   async function saveFinancialSetup(event) {
     event.preventDefault()
     if (!selectedTournamentId) return
-
     setSaving(true)
     setError('')
     try {
@@ -108,7 +107,7 @@ export default function Finance() {
       })
       await loadFinanceData(selectedTournamentId)
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر حفظ الإعداد المالي')
+      setError(requestError?.response?.data?.message || 'Failed to save financial setup')
     } finally {
       setSaving(false)
     }
@@ -117,251 +116,259 @@ export default function Finance() {
   async function addExpense(event) {
     event.preventDefault()
     if (!selectedTournamentId) return
-
     setSaving(true)
     setError('')
     try {
       await createExpense({
         tournament_id: Number(selectedTournamentId),
         title: form.expense_title.trim(),
-        amount: Number(form.expense_amount || 0),
+        amount: Number(form.expense_amount),
       })
       setForm((state) => ({ ...state, expense_title: '', expense_amount: '' }))
       await loadFinanceData(selectedTournamentId)
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر إضافة المصروف')
+      setError(requestError?.response?.data?.message || 'Failed to add expense')
     } finally {
       setSaving(false)
     }
   }
 
   async function removeExpense(expenseId) {
+    if (!selectedTournamentId) return
     setSaving(true)
     setError('')
     try {
       await deleteExpense(expenseId)
       await loadFinanceData(selectedTournamentId)
     } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر حذف المصروف')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function clearFinancialSetup() {
-    if (!selectedTournamentId) return
-    setSaving(true)
-    setError('')
-    try {
-      await deleteFinancialSetup(Number(selectedTournamentId))
-      await loadFinanceData(selectedTournamentId)
-    } catch (requestError) {
-      setError(requestError?.response?.data?.message || 'تعذر حذف الإعداد المالي')
+      setError(requestError?.response?.data?.message || 'Failed to delete expense')
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">لوحة المؤشرات المالية</h2>
-        <select
-          className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-          value={selectedTournamentId}
-          onChange={(event) => setSelectedTournamentId(event.target.value)}
-        >
-          {tournaments.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {!isAdmin ? (
-        <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
-          وضع العرض فقط: يمكن لمشرف المنصة مشاهدة المؤشرات المالية دون تعديلها.
-        </p>
-      ) : null}
-
-      {loading ? <p className="text-sm text-[var(--text-secondary)]">جار تحميل البيانات المالية...</p> : null}
-      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((item) => (
-          <article key={item.key} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs text-[var(--text-secondary)]">{item.label}</p>
-            <p className="mt-2 text-lg font-semibold text-[var(--secondary-color)]">{item.value}</p>
-          </article>
-        ))}
-      </div>
-
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <p className="text-sm text-[var(--text-secondary)]">مقارنة الإيرادات مقابل المصروفات</p>
-        <SimpleFinanceChart revenue={summary?.total_revenue || 0} costs={summary?.total_costs || 0} />
-      </div>
-
-      {isAdmin ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <form className="rounded-2xl border border-white/10 bg-white/5 p-4" onSubmit={saveFinancialSetup}>
-            <p className="text-base font-semibold">إعدادات المالية</p>
-            <div className="mt-3 grid gap-3">
-              <Field
-                placeholder="رسوم التسجيل"
-                value={form.entry_fee}
-                onChange={(event) => setForm((state) => ({ ...state, entry_fee: event.target.value }))}
-              />
-              <Field
-                placeholder="مبلغ الرعاية"
-                value={form.sponsor_amount}
-                onChange={(event) => setForm((state) => ({ ...state, sponsor_amount: event.target.value }))}
-              />
-              <Field
-                placeholder="عدد الفرق المتوقع"
-                value={form.expected_teams}
-                onChange={(event) => setForm((state) => ({ ...state, expected_teams: event.target.value }))}
-              />
-              <Field
-                placeholder="سعر الساعة (ج.م)"
-                value={form.hour_rate}
-                onChange={(event) => setForm((state) => ({ ...state, hour_rate: event.target.value }))}
-              />
-              <Field
-                placeholder="مدة المباراة (دقيقة)"
-                value={form.match_duration_minutes}
-                onChange={(event) => setForm((state) => ({ ...state, match_duration_minutes: event.target.value }))}
-              />
+    <section className="space-y-6">
+      {/* Top Header & Selector */}
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-400/40 bg-emerald-500/20 text-emerald-400">
+              <AppIcon name="dollar" size={22} />
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className="min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
-              >
-                حفظ الإعداد
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={clearFinancialSetup}
-                className="min-h-11 rounded-2xl border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 disabled:opacity-60"
-              >
-                حذف الإعداد
-              </button>
+            <div>
+              <ShinyText text={t('navFinance')} className="text-xl font-black text-white" />
+              <p className="text-xs text-slate-400">
+                {language === 'ar' ? 'الإيرادات، رسوم الاشتراك، الرعاية، المصروفات، وصافي الأرباح' : 'Revenue, fees, sponsorships, operational costs, and profit'}
+              </p>
             </div>
-          </form>
+          </div>
 
-          <form className="rounded-2xl border border-white/10 bg-white/5 p-4" onSubmit={addExpense}>
-            <p className="text-base font-semibold">إضافة مصروف</p>
-            <div className="mt-3 grid gap-3">
-              <Field
-                placeholder="عنوان المصروف"
-                value={form.expense_title}
-                onChange={(event) => setForm((state) => ({ ...state, expense_title: event.target.value }))}
-                required
-              />
-              <Field
-                placeholder="المبلغ"
-                value={form.expense_amount}
-                onChange={(event) => setForm((state) => ({ ...state, expense_amount: event.target.value }))}
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={saving}
-              className="mt-3 min-h-11 rounded-2xl bg-[var(--primary-color)] px-4 py-2 text-sm font-semibold text-[#07162b] disabled:opacity-60"
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold text-slate-400 hidden sm:block">
+              {language === 'ar' ? 'البطولة:' : 'Tournament:'}
+            </label>
+            <select
+              className="rounded-xl border border-emerald-500/30 bg-slate-900/90 px-3.5 py-2 text-xs font-bold text-white focus:border-emerald-400 focus:outline-none"
+              value={selectedTournamentId}
+              onChange={(e) => setSelectedTournamentId(e.target.value)}
             >
-              إضافة المصروف
-            </button>
-          </form>
+              {tournaments.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </SpotlightCard>
+
+      {error ? (
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/15 p-3.5 text-xs font-bold text-rose-200">
+          <AppIcon name="alert" size={16} className="text-rose-400 shrink-0" />
+          <span>{error}</span>
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-        <table className="min-w-full text-right text-sm">
-          <thead className="bg-white/5 text-[var(--text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">العنوان</th>
-              <th className="px-4 py-3">المبلغ</th>
-              <th className="px-4 py-3">التاريخ</th>
-              {isAdmin ? <th className="px-4 py-3">إجراءات</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {expenses.length ? (
-              expenses.map((item) => (
-                <tr key={item.id} className="border-t border-white/10">
-                  <td className="px-4 py-3">{item.title}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{formatArabicCurrency(item.amount)}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{formatArabicDateTime(item.created_at)}</td>
-                  {isAdmin ? (
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => removeExpense(item.id)}
-                        className="rounded-xl border border-rose-300/40 bg-rose-500/10 px-3 py-1 text-xs text-rose-200 disabled:opacity-60"
-                      >
-                        حذف
-                      </button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))
-            ) : (
+      {/* KPI Cards Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {kpis.map((kpi, idx) => (
+          <SpotlightCard key={idx} className={`border ${kpi.border} bg-slate-950/80 p-5`}>
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>{kpi.label}</span>
+              <AppIcon name={kpi.icon} size={18} className={kpi.color} />
+            </div>
+            <p className="mt-2.5 text-2xl font-black text-white font-mono">
+              {loading ? '--' : kpi.value}
+            </p>
+          </SpotlightCard>
+        ))}
+      </div>
+
+      {isAdmin && (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Financial Calculation Settings */}
+          <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+              <AppIcon name="sliders" size={16} />
+              <span>{language === 'ar' ? 'معايير حسابات البطولة' : 'Financial Parameters'}</span>
+            </h3>
+
+            <form onSubmit={saveFinancialSetup} className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">{t('entryFee')}</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  value={form.entry_fee}
+                  onChange={(e) => setForm((s) => ({ ...s, entry_fee: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">{t('sponsorAmount')}</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  value={form.sponsor_amount}
+                  onChange={(e) => setForm((s) => ({ ...s, sponsor_amount: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">{t('hourRate')}</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  value={form.hour_rate}
+                  onChange={(e) => setForm((s) => ({ ...s, hour_rate: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">
+                  {language === 'ar' ? 'مدة المباراة (دقائق)' : 'Match Mins'}
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  value={form.match_duration_minutes}
+                  onChange={(e) => setForm((s) => ({ ...s, match_duration_minutes: e.target.value }))}
+                />
+              </div>
+
+              <div className="sm:col-span-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-xl border border-sky-400 bg-sky-500 px-5 py-2 text-xs font-bold text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.3)] transition hover:bg-sky-400 disabled:opacity-50"
+                >
+                  <AppIcon name="save" size={14} />
+                  <span>{saving ? t('loading') : (language === 'ar' ? 'حفظ معايير المالية' : 'Save Parameters')}</span>
+                </button>
+              </div>
+            </form>
+          </SpotlightCard>
+
+          {/* Add Expense Form */}
+          <SpotlightCard className="border border-white/10 bg-slate-950/80 p-6 space-y-4">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-400 flex items-center gap-2">
+              <AppIcon name="plus" size={16} />
+              <span>{language === 'ar' ? 'إضافة بند مصروف جديد' : 'Log New Expense Item'}</span>
+            </h3>
+
+            <form onSubmit={addExpense} className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">
+                  {language === 'ar' ? 'وصف المصروف' : 'Expense Description'}
+                </label>
+                <input
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  placeholder={language === 'ar' ? 'مشروبات، حكام، صيانة...' : 'e.g. Referee compensation, snacks'}
+                  value={form.expense_title}
+                  onChange={(e) => setForm((s) => ({ ...s, expense_title: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-bold text-slate-300">
+                  {language === 'ar' ? 'المبلغ (ج.م)' : 'Amount (EGP)'}
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-xs text-white focus:border-sky-400 focus:outline-none"
+                  placeholder="500"
+                  value={form.expense_amount}
+                  onChange={(e) => setForm((s) => ({ ...s, expense_amount: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="sm:col-span-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/20 px-5 py-2 text-xs font-bold text-rose-200 transition hover:bg-rose-500/30 disabled:opacity-50"
+                >
+                  <AppIcon name="plus" size={14} />
+                  <span>{saving ? t('loading') : (language === 'ar' ? 'تسجيل المصروف' : 'Add Expense')}</span>
+                </button>
+              </div>
+            </form>
+          </SpotlightCard>
+        </div>
+      )}
+
+      {/* Expenses Table */}
+      <SpotlightCard className="border border-white/10 bg-slate-950/80 p-0 overflow-hidden">
+        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            {language === 'ar' ? 'سجل المصروفات' : 'Expenses Ledger'} ({expenses.length})
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className={`min-w-full text-xs ${isRtl ? 'text-right' : 'text-left'}`}>
+            <thead className="border-b border-white/10 bg-slate-900/80 text-slate-400 uppercase font-semibold">
               <tr>
-                <td className="px-4 py-8 text-center text-[var(--text-secondary)]" colSpan={isAdmin ? 4 : 3}>
-                  لا توجد مصروفات حتى الآن.
-                </td>
+                <th className="px-4 py-3">{language === 'ar' ? 'بند المصروف' : 'Item'}</th>
+                <th className="px-4 py-3">{language === 'ar' ? 'المبلغ' : 'Amount'}</th>
+                <th className="px-4 py-3">{language === 'ar' ? 'التاريخ' : 'Date'}</th>
+                {isAdmin && <th className="px-4 py-3">{language === 'ar' ? 'إجراء' : 'Action'}</th>}
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {expenses.length ? (
+                expenses.map((item) => (
+                  <tr key={item.id} className="transition hover:bg-white/[0.02]">
+                    <td className="px-4 py-3 font-bold text-white">{item.title}</td>
+                    <td className="px-4 py-3 text-rose-300 font-mono font-bold">{item.amount?.toLocaleString()} EGP</td>
+                    <td className="px-4 py-3 text-slate-400">{new Date(item.created_at).toLocaleDateString()}</td>
+                    {isAdmin && (
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => removeExpense(item.id)}
+                          className="text-rose-400 hover:text-rose-300"
+                        >
+                          <AppIcon name="trash" size={14} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={4}>
+                    {language === 'ar' ? 'لا توجد مصروفات مسجلة لهذه البطولة.' : 'No expenses recorded for this tournament.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </SpotlightCard>
     </section>
-  )
-}
-
-function Field({ value, onChange, placeholder, required = false }) {
-  return (
-    <input
-      className="min-h-11 rounded-2xl border border-white/15 bg-black/25 px-3 py-2"
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      required={required}
-    />
-  )
-}
-
-function SimpleFinanceChart({ revenue, costs }) {
-  const max = Math.max(1, revenue, costs)
-  const revenueHeight = Math.round((revenue / max) * 180)
-  const costHeight = Math.round((costs / max) * 180)
-
-  return (
-    <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_260px]">
-      <div className="h-56 rounded-2xl border border-white/10 bg-black/20 p-4">
-        <svg viewBox="0 0 600 220" className="h-full w-full" role="img" aria-label="مخطط مالي">
-          <line x1="50" y1="190" x2="560" y2="190" stroke="rgba(255,255,255,0.25)" strokeWidth="2" />
-          <rect x="140" y={190 - revenueHeight} width="120" height={revenueHeight} rx="12" fill="rgba(201,162,39,0.92)" />
-          <rect x="340" y={190 - costHeight} width="120" height={costHeight} rx="12" fill="rgba(78,130,190,0.9)" />
-          <text x="200" y="210" textAnchor="middle" fill="rgba(248,244,232,0.85)" fontSize="16">
-            الإيرادات
-          </text>
-          <text x="400" y="210" textAnchor="middle" fill="rgba(248,244,232,0.85)" fontSize="16">
-            المصروفات
-          </text>
-        </svg>
-      </div>
-
-      <div className="space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm">
-        <p className="text-[var(--text-secondary)]">الإيرادات: {formatArabicCurrency(revenue)}</p>
-        <p className="text-[var(--text-secondary)]">المصروفات: {formatArabicCurrency(costs)}</p>
-        <p className="text-[var(--text-secondary)]">الفرق: {formatArabicCurrency(revenue - costs)}</p>
-      </div>
-    </div>
   )
 }

@@ -317,10 +317,10 @@ export default function ScheduleManagementPage() {
         starts_at: toUtcIsoFromLocalDateTime(createForm.starts_at),
         ends_at: toUtcIsoFromLocalDateTime(createForm.ends_at),
         sponsor_logo_url: createForm.sponsor_logo_url || null,
-        home_away_enabled: createForm.home_away_enabled,
-        home_away_stages: createForm.home_away_stages,
-        hybrid_qualifiers_count: createForm.hybrid_qualifiers_count,
-        teams: [emptyTeam(), emptyTeam()],
+        teams: [
+          { team_name: language === 'ar' ? 'فريق 1' : 'Team 1', club_name: 'Real Madrid' },
+          { team_name: language === 'ar' ? 'فريق 2' : 'Team 2', club_name: 'FC Barcelona' },
+        ],
       })
       await loadTournaments()
       setSelectedTournamentId(String(created.id))

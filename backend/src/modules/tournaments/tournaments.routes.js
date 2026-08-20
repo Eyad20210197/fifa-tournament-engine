@@ -31,14 +31,32 @@ const optionalDateTimeSchema = z.preprocess((value) => {
   return value
 }, z.string().datetime({ offset: true }).nullable())
 
+const formatSchema = z.preprocess((val) => {
+  const str = String(val || '').trim().toLowerCase()
+  if (str === 'league' || str === 'دوري' || str === 'round_robin') return FORMAT_LEAGUE
+  if (str === 'knockout' || str === 'خروج مغلوب' || str === 'single_elimination') return FORMAT_KNOCKOUT
+  return val
+}, z.enum([FORMAT_LEAGUE, FORMAT_KNOCKOUT]))
+
 const teamInputSchema = z.object({
   team_name: z.string().min(1),
   club_name: z.string().optional().nullable(),
 })
 
+const sanitizeTeams = (val) => {
+  if (!Array.isArray(val)) return []
+  return val
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      team_name: String(item.team_name || item.name || '').trim(),
+      club_name: item.club_name ? String(item.club_name).trim() : null,
+    }))
+    .filter((item) => item.team_name.length > 0)
+}
+
 const createTournamentSchema = z.object({
   name: z.string().min(1),
-  format: z.enum([FORMAT_LEAGUE, FORMAT_KNOCKOUT]),
+  format: formatSchema,
   starts_at: optionalDateTimeSchema.optional(),
   ends_at: optionalDateTimeSchema.optional(),
   sponsor_logo_url: z.string().optional().nullable(),
@@ -58,12 +76,12 @@ const createTournamentSchema = z.object({
   progression_locked: z.coerce.boolean().optional(),
   hybrid_qualifiers_count: z.coerce.number().int().min(2).max(64).optional(),
   selected_rounds: z.array(z.coerce.number().int().positive()).optional().nullable(),
-  teams: z.array(teamInputSchema).max(128).default([]),
+  teams: z.preprocess(sanitizeTeams, z.array(teamInputSchema).max(128).default([])),
 })
 
 const updateTournamentSchema = z.object({
   name: z.string().min(1).optional(),
-  format: z.enum([FORMAT_LEAGUE, FORMAT_KNOCKOUT]).optional(),
+  format: formatSchema.optional(),
   status: z.enum(['draft', 'scheduled', 'live', 'finished']).optional(),
   starts_at: optionalDateTimeSchema.optional(),
   ends_at: optionalDateTimeSchema.optional(),
@@ -87,7 +105,7 @@ const updateTournamentSchema = z.object({
 })
 
 const updateTeamsSchema = z.object({
-  teams: z.array(teamInputSchema).min(2).max(128),
+  teams: z.preprocess(sanitizeTeams, z.array(teamInputSchema).min(2).max(128)),
 })
 
 const customScheduleTeamSchema = z.object({

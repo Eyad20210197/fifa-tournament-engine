@@ -76,5 +76,21 @@ app.use('/api/ably', ablyRouter)
 app.use('/ably', ablyRouter)
 app.use('/api/media', mediaRouter)
 
+app.get('/', (req, res) => {
+  return res.status(200).json({
+    success: true,
+    status: 'ok',
+    environment: env.nodeEnv,
+    baseUrl: env.baseUrl || null,
+  })
+})
+
+app.get(['/health', '/api/health'], (req, res) => {
+  return res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  })
+})
+
 app.use(notFound)
 app.use(errorHandler)

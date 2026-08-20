@@ -62,19 +62,40 @@ async function runMigrations() {
       }
 
       console.log(`  🚀 Applying migration: ${file}...`)
-      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8')
+      const rawSql = fs.readFileSync(path.join(migrationsDir, file), 'utf8')
+      const isConcurrent = /INDEX\s+CONCURRENTLY/i.test(rawSql)
 
-      await client.query('BEGIN')
-      try {
-        await client.query(sql)
-        await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file])
-        await client.query('COMMIT')
-        console.log(`  ✅ Successfully applied: ${file}`)
-        appliedCount++
-      } catch (err) {
-        await client.query('ROLLBACK')
-        console.error(`  ❌ Failed applying ${file}:`, err.message)
-        throw err
+      if (isConcurrent) {
+        try {
+          // Split into individual statements so PostgreSQL doesn't bundle them into an implicit multi-statement transaction
+          const statements = rawSql
+            .split(';')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
+
+          for (const stmt of statements) {
+            await client.query(stmt)
+          }
+          await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file])
+          console.log(`  ✅ Successfully applied (non-transactional): ${file}`)
+          appliedCount++
+        } catch (err) {
+          console.error(`  ❌ Failed applying ${file}:`, err.message)
+          throw err
+        }
+      } else {
+        await client.query('BEGIN')
+        try {
+          await client.query(rawSql)
+          await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file])
+          await client.query('COMMIT')
+          console.log(`  ✅ Successfully applied: ${file}`)
+          appliedCount++
+        } catch (err) {
+          await client.query('ROLLBACK')
+          console.error(`  ❌ Failed applying ${file}:`, err.message)
+          throw err
+        }
       }
     }
 

@@ -5,11 +5,17 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
+        "dev:all": "concurrently --names \"FRONT,BACK\" -c \"cyan,magenta\" \"npm run dev\" \"npm run backend:dev\"",
+        "dev:full": "npm run db:up && npm run db:migrate && npm run dev:all",
         "build": "vite build",
         "lint": "eslint .",
         "preview": "vite preview",
+        "db:up": "docker compose -f docker-compose.dev.yml up -d",
+        "db:down": "docker compose -f docker-compose.dev.yml down",
+        "db:migrate": "npm --prefix backend run migrate",
         "backend:dev": "npm --prefix backend run dev",
-        "backend:start": "npm --prefix backend run start"
+        "backend:start": "npm --prefix backend run start",
+        "backend:migrate": "npm --prefix backend run migrate"
     },
     "dependencies": {
         "@vercel/speed-insights": "^1.3.1",
@@ -30,6 +36,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.1.1",
         "autoprefixer": "^10.4.19",
+        "concurrently": "^10.0.5",
         "eslint": "^9.39.1",
         "eslint-plugin-react": "^7.37.5",
         "eslint-plugin-react-hooks": "^7.0.1",

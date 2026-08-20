@@ -5,23 +5,17 @@ import { asyncHandler } from '../../utils/asyncHandler.js'
 import { authorize } from '../../middleware/authorize.js'
 import { authenticate } from '../../middleware/authenticate.js'
 import { requireSubscription } from '../../middleware/requireSubscription.js'
-import { publishEvent } from '../../services/ably.service.js'
+import { publishEvent, generateTokenRequest } from '../../services/ably.service.js'
 import { matchChannel, tournamentChannel } from '../../services/channel-names.service.js'
 
 export const ablyRouter = Router()
-
-const ably = new Ably.Rest({ key: process.env.ABLY_API_KEY })
 
 ablyRouter.get(
   '/token',
   asyncHandler(async (req, res) => {
     const rawClientId = req.query.clientId
-    const clientId = rawClientId == null ? null : String(rawClientId).trim()
-    const options = {
-      ...(clientId ? { clientId } : {}),
-      capability: { '*': ['*'] },
-    }
-    const tokenRequest = await ably.auth.createTokenRequest(options)
+    const clientId = rawClientId == null ? 'anonymous-client' : String(rawClientId).trim()
+    const tokenRequest = await generateTokenRequest(clientId)
     return res.json(tokenRequest)
   }),
 )

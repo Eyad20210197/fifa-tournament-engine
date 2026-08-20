@@ -49,9 +49,17 @@ if (!env.baseUrl && env.nodeEnv === 'production') {
 }
 
 if (!env.ablyApiKey) {
-  throw new Error('ABLY_API_KEY is required')
+  if (env.nodeEnv === 'production') {
+    throw new Error('ABLY_API_KEY is required in production')
+  } else {
+    console.warn('⚠️ [DEV MODE] ABLY_API_KEY is not set. Real-time events will run in mock mode.')
+  }
 }
 
 if (!env.cloudinaryCloudName || !env.cloudinaryApiKey || !env.cloudinaryApiSecret) {
-  throw new Error('Cloudinary config is required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET')
+  if (env.nodeEnv === 'production') {
+    throw new Error('Cloudinary config is required: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET')
+  } else {
+    console.warn('⚠️ [DEV MODE] Cloudinary credentials are not fully configured. Media uploads will require valid credentials.')
+  }
 }

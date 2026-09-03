@@ -1,6 +1,6 @@
 <div align="center">
 
-# FIFA Tournament Engine#
+# FIFA Tournament Engine
 
 **Real-time tournament operations platform built for live competitive gaming events.**
 
@@ -16,7 +16,7 @@ Built and delivered by **The Software Guys** for a **30-day sponsored FIFA tourn
 
 ---
 
-## Overview#
+## Overview
 
 FIFA Tournament Engine is a full-stack tournament management system designed to run live gaming competitions from a single operational platform.
 

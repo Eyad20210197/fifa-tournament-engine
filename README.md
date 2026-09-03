@@ -200,6 +200,6 @@ This project was built around the requirements of a live event rather than a sta
 <div align="center">
 
 **Built by [The Software Guys](https://github.com/Eyad20210197/The-Software-Guys)**  
-Developed by [Eyad Aboelftoh](https://github.com/Eyad20210197)
+Developed by [Eyad Aboelftoh](https://github.com/Eyad20210197) & [Roba Ahmed](https://github.com/Robaa18)
 
 </div>
